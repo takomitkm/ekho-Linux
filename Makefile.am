@@ -73,7 +73,7 @@ LIBEKHO_LIB = \
 	-lm \
 	-lpthread
 
-bin_PROGRAMS = ekho ekho-stream ekho-server
+bin_PROGRAMS = ekho ekho-stream
 
 ekho_SOURCES = src/ekho.cpp
 ekho_CPPFLAGS = -I$(srcdir)/src @SNDFILE_CFLAGS@ @ESPEAK_NG_CFLAGS@ @SONIC_CFLAGS@ @CURL_CFLAGS@
@@ -87,6 +87,12 @@ ekho_stream_CPPFLAGS = -I$(srcdir)/src @SNDFILE_CFLAGS@ @ESPEAK_NG_CFLAGS@ @SONI
 ekho_stream_CXXFLAGS = $(AM_CXXFLAGS) $(PTHREAD_CFLAGS)
 ekho_stream_LDADD = $(LIBEKHO_LIB) @SNDFILE_LIBS@ @ESPEAK_NG_LIBS@ $(PTHREAD_LIBS)
 
+# Two service front ends over the same engine; see configure.ac. Both are built
+# by default, and either can be dropped at configure time: a build that only
+# wants the pipe drops ekho-server, one that only wants HTTP drops ekho-worker.
+if BUILD_HTTP_SERVER
+bin_PROGRAMS += ekho-server
+
 # Streaming HTTP server: the replacement for the private one-shot TCP protocol
 # in server.cpp. Feeds the request body to a StreamingSession as it arrives and
 # returns chunked PCM.
@@ -94,6 +100,19 @@ ekho_server_SOURCES = src/ekho_server_main.cpp
 ekho_server_CPPFLAGS = -I$(srcdir)/src @SNDFILE_CFLAGS@ @ESPEAK_NG_CFLAGS@ @SONIC_CFLAGS@
 ekho_server_CXXFLAGS = $(AM_CXXFLAGS) $(PTHREAD_CFLAGS)
 ekho_server_LDADD = $(LIBEKHO_LIB) @SNDFILE_LIBS@ @ESPEAK_NG_LIBS@ $(PTHREAD_LIBS)
+endif
+
+if BUILD_WORKER
+bin_PROGRAMS += ekho-worker
+
+# Resident line-protocol worker: the engine stays loaded, one UTF-8 line in and
+# one framed audio payload out, so a same-box caller pays synthesis and not a
+# voice-pack cold start per utterance.
+ekho_worker_SOURCES = src/ekho_worker_main.cpp
+ekho_worker_CPPFLAGS = -I$(srcdir)/src @SNDFILE_CFLAGS@ @ESPEAK_NG_CFLAGS@ @SONIC_CFLAGS@
+ekho_worker_CXXFLAGS = $(AM_CXXFLAGS) $(PTHREAD_CFLAGS)
+ekho_worker_LDADD = $(LIBEKHO_LIB) @SNDFILE_LIBS@ @ESPEAK_NG_LIBS@ $(PTHREAD_LIBS)
+endif
 
 noinst_PROGRAMS = test_ekho
 test_ekho_SOURCES = src/test_ekho.cpp

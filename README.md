@@ -258,7 +258,71 @@ WantedBy=multi-user.target
 `--host 127.0.0.1` on purpose: this is plain HTTP with no authentication, so
 do not leave it on `0.0.0.0` without a firewall in front of it.
 
-### 3. Feeding it from an ASR side
+### 3. As a resident worker: ekho-worker
+
+Same engine, resident, behind a **pipe** instead of a socket. This is the right
+shape when the caller is a process on the same box: no port, no request parser,
+and -- the point of the exercise -- no per-utterance cold start.
+
+```bash
+out/ekho-worker --voice Mandarin --samplerate 48000 --channels 2 --format wav
+```
+
+It reads one UTF-8 line per utterance from stdin and writes one frame per line
+to stdout:
+
+```
+4 bytes magic | 4 bytes payload length (big endian) | N bytes payload
+"EKH1" audio (complete WAV, or raw PCM with --format pcm)
+"EKH0" UTF-8 error text
+"EKH9" UTF-8 JSON status (!ping, !info)
+```
+
+stderr carries the log only, so stdout stays a clean byte stream. Lines
+starting with `!` are commands: `!ping`, `!info`, `!voice NAME`, `!speed N`,
+`!pitch N`, `!volume N`, `!english-speed N`, `!quit`. Everything else is text
+to speak; blank lines are ignored.
+
+The voice pack is loaded once, at startup, and kept: a cold `ekho` run re-reads
+136 MB of `.voice` files before the first syllable, and the worker pays that
+once instead of per turn. `--no-warmup` skips the one-off warm-up synthesis that
+initialises espeak-ng and the dictionary indexes.
+
+From Python, `scripts/funasr_bridge.py` speaks this protocol already:
+
+```bash
+python3 scripts/funasr_bridge.py worker --exe out/ekho-worker "你好，世界。"
+python3 scripts/funasr_bridge.py worker --exe out/ekho-worker --save out.wav "文本"
+python3 scripts/funasr_bridge.py listen --worker out/ekho-worker   # no HTTP anywhere
+```
+
+```python
+from funasr_bridge import WorkerClient
+tts = WorkerClient("out/ekho-worker", ["--format", "wav"])  # pack loads once
+for line in recognised:          # per turn
+    payload = tts.speak(line)    # WAV bytes; play, save, or hand to a player
+```
+
+`speak_resident(text)` is the one-liner form: one worker per process, reused.
+
+### 4. Choosing a front end at build time
+
+Both front ends are built by default, and either can be dropped:
+
+```bash
+./configure                        # ekho, ekho-stream, ekho-server, ekho-worker
+./configure --disable-http-server  # pipe only: no ekho-server
+./configure --disable-worker       # HTTP only: no ekho-worker
+```
+
+Which to pick: HTTP when the caller is another machine or another language
+runtime and opening a port is acceptable; the worker when the caller is a local
+process that can hold a pipe open and wants the engine resident. The engine and
+its data are identical either way -- `src/http_server.cpp` plus
+`src/ekho_server_main.cpp` is one module, `src/ekho_worker_main.cpp` is the
+other, and both link the same `libekho.a`.
+
+### 5. Feeding it from an ASR side
 
 `scripts/funasr_bridge.py` wraps both ends of that HTTP service for an ASR
 front end (FunASR or anything else):
@@ -312,10 +376,64 @@ Two FunASR flavours exist, and the hook point differs:
   both, and its wheels are far too heavy for a 1 GB board -- so the ONNX
   runtime is the sane shape there.
 
+  Nothing is lost by that: the graphs on the board are the same FunASR
+  models, exported with `model.export(type="onnx", quantize=True)`
+  (`model_quant.onnx`, plus `decoder_quant.onnx` for the online model).
+  The export needs PyTorch, but it happens off the board -- the board runs
+  the exported graphs through onnxruntime, whose C++ core
+  (`libonnxruntime.so`) sits underneath a thin Python wrapper.
+
 One limit to know about: the server serialises synthesis process-wide (the
 engine keeps global callbacks, and espeak-ng keeps global voice state), so
 one request at a time is all it really does. That is deliberate, and still
 far faster than realtime.
+
+#### Two processes, plain HTTP between them
+
+The shape that works on a board is **two processes, not one** -- the ASR
+side and the TTS side never share an address space:
+
+```
+  process 1 (Python)                      process 2 (C++)
+  FunASR recognition --HTTP POST /tts-->  ekho-server :2046
+        |                                       |
+        |                               returns audio/wav
+        v                                       |
+  funasr_bridge.speak() --subprocess--> aplay --ALSA--> speaker
+```
+
+Both processes can live on the same board, and they talk plain HTTP over
+loopback. That buys three things a single process cannot:
+
+* **No binding, no ABI work.** The engine stays a C++ program; the ASR side
+  stays Python. No ctypes or Cython layer, no shared library to build and
+  ship, and no chance of the two runtimes disagreeing about who owns a
+  callback.
+* **No shared global state.** The engine keeps global callbacks and
+  espeak-ng keeps global voice state; onnxruntime keeps its own sessions.
+  Separate processes cannot corrupt each other.
+* **No shared memory.** The 48 kHz voice pack is 136 MB of `.voice` files
+  (140 MB including the shared dictionaries). It is read by the TTS process
+  only, so the ASR process's memory footprint -- and the numbers measured
+  for it -- stay as they are.
+
+The TTS process is the one described in section 2 above, started once:
+
+```bash
+export EKHO_DATA_PATH=/root/ekho-bench/p48
+export ESPEAK_DATA_PATH=/root/ekho-bench/espeak-ng-data
+/root/ekho-bench/bin/ekho-server --host 127.0.0.1 --port 2046 --out-dir /tmp/ekho-out
+```
+
+and the ASR process only needs to POST a line of text to it, which is what
+`funasr_bridge.speak()` does. `--host 127.0.0.1` keeps the service on
+loopback, where it belongs: it has no authentication.
+
+(Embedding the engine into the ASR process -- loading it in-process through
+the C API in `src/ekho.h` -- is possible, but it needs a shared library
+build, and it would put the engine's global state and the voice pack in
+the same address space as the recogniser. Two processes and an HTTP call
+are the cheaper arrangement.)
 
 ## Upstream ekho
 

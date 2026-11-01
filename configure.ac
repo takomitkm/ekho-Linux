@@ -264,6 +264,29 @@ AC_ARG_ENABLE([dist-voice],
 AM_CONDITIONAL([DIST_VOICE_DATA], [test "x$dist_voice" = xtrue])
 
 # ---------------------------------------------------------------------------
+# Service front ends
+#
+# The engine can be driven two ways, and a build only needs the one it will
+# actually run: ekho-server speaks HTTP (right when the caller is another
+# machine or another language runtime), ekho-worker speaks a line protocol over
+# a pipe (right when the caller is a process on the same box that already has
+# one, and wants the engine resident without opening a port). Both are built by
+# default so `make` keeps producing what it always did; each can be dropped
+# with its --disable flag.
+# ---------------------------------------------------------------------------
+AC_ARG_ENABLE([http-server],
+  [AS_HELP_STRING([--disable-http-server],
+                  [do not build ekho-server, the HTTP front end])],
+  [], [http_server=true])
+AM_CONDITIONAL([BUILD_HTTP_SERVER], [test "x$http_server" = xtrue])
+
+AC_ARG_ENABLE([worker],
+  [AS_HELP_STRING([--disable-worker],
+                  [do not build ekho-worker, the line-protocol front end])],
+  [], [worker=true])
+AM_CONDITIONAL([BUILD_WORKER], [test "x$worker" = xtrue])
+
+# ---------------------------------------------------------------------------
 # Summary
 # ---------------------------------------------------------------------------
 AC_MSG_NOTICE([
@@ -283,6 +306,8 @@ AC_MSG_NOTICE([
   flite             : $enable_flite
   libcurl           : $with_curl
   voice data        : $dist_voice
+  HTTP server       : $http_server             [ekho-server]
+  line-protocol wkr : $worker                  [ekho-worker]
 ])
 
 AC_CONFIG_FILES([Makefile])

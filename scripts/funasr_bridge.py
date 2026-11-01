@@ -32,6 +32,23 @@
 #       python3 funasr_bridge.py listen [--bind 0.0.0.0 --port 2047]
 #       [ FunASR side: ] curl -X POST --data-binary "文本" http://this-side:2047/
 #
+#   worker: the same job without HTTP, over a pipe to the resident
+#   ekho-worker (src/ekho_worker_main.cpp). No socket, no port, and no
+#   per-utterance cold start: the engine loads the voice pack once and stays
+#   loaded. Use it when the caller is a process on the same box:
+#
+#       python3 funasr_bridge.py worker --exe /path/ekho-worker "文本"
+#       python3 funasr_bridge.py listen --worker /path/ekho-worker
+#
+#   In-process, the resident worker is what an ASR loop should hold on to:
+#
+#       from funasr_bridge import WorkerClient
+#       tts = WorkerClient("/path/ekho-worker", ["--format", "wav"])
+#       tts.speak("识别出的文本")          # per turn; the pack stays loaded
+#
+#   `speak_resident(text)` is the one-liner form: it keeps one worker per
+#   process and reuses it.
+#
 # FunASR hook (on the ASR side, stdlib import only):
 #
 #     import sys
@@ -57,12 +74,14 @@
 # and Python module names cannot carry a hyphen.
 
 import argparse
+import json
 import os
 import shlex
 import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -200,6 +219,149 @@ def speak(text, server=DEFAULT_SERVER, player=None, save=None, stream=False,
 
 
 # ---------------------------------------------------------------------------
+# worker mode: the resident line-protocol engine behind two pipes.
+#
+# Frame layout, one per line consumed (see src/ekho_worker_main.cpp):
+#     4 bytes magic, 4 bytes payload length big endian, N bytes payload
+#     "EKH1" audio, "EKH0" error text, "EKH9" JSON status
+# ---------------------------------------------------------------------------
+
+WORKER_AUDIO = b"EKH1"
+WORKER_ERROR = b"EKH0"
+WORKER_STATUS = b"EKH9"
+DEFAULT_WORKER = os.environ.get("EKHO_WORKER", "ekho-worker")
+
+
+class WorkerError(RuntimeError):
+    """ekho-worker reported a failure, or the pipe went away."""
+
+
+class WorkerClient(object):
+    """A resident ekho-worker. Create once, speak many times.
+
+    The whole point: the engine loads the voice pack at startup and keeps it,
+    so an utterance costs synthesis and nothing else. One line in, one framed
+    payload out, in order.
+    """
+
+    def __init__(self, exe=DEFAULT_WORKER, args=(), stderr=None, handshake=True):
+        cmd = [exe] + list(args)
+        try:
+            self.proc = subprocess.Popen(
+                cmd,
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=stderr if stderr is not None else sys.stderr,
+                bufsize=0,
+            )
+        except OSError as e:
+            raise WorkerError("cannot start %s: %s" % (" ".join(cmd), e))
+        self._closed = False
+        # The worker reads stdin only after it has loaded the voice pack and
+        # finished its warm-up, so one round trip tells us it is ready -- and
+        # surfaces a dead worker (bad data path, unknown voice) as an exception
+        # here instead of on the first real utterance.
+        if handshake:
+            self.info()
+
+    # --- pipe plumbing -------------------------------------------------
+    def _read_exact(self, n):
+        buf = b""
+        while len(buf) < n:
+            chunk = self.proc.stdout.read(n - len(buf))
+            if not chunk:
+                raise WorkerError("ekho-worker closed the pipe")
+            buf += chunk
+        return buf
+
+    def _read_frame(self):
+        head = self._read_exact(8)
+        magic = head[:4]
+        length = int.from_bytes(head[4:], "big")
+        body = self._read_exact(length) if length else b""
+        return magic, body
+
+    def _send(self, line):
+        if self._closed:
+            raise WorkerError("worker already closed")
+        self.proc.stdin.write(line.encode("utf-8") + b"\n")
+        self.proc.stdin.flush()
+
+    # --- public API ----------------------------------------------------
+    def speak(self, text):
+        """Synthesise one line; return the audio payload (WAV by default)."""
+        if not text or not text.strip():
+            raise ValueError("empty text")
+        self._send(text)
+        magic, body = self._read_frame()
+        if magic == WORKER_ERROR:
+            raise WorkerError(body.decode("utf-8", "replace"))
+        if magic != WORKER_AUDIO:
+            raise WorkerError("unexpected frame %r from ekho-worker" % magic)
+        return body
+
+    def command(self, line):
+        """Send a '!command' (or a bare name) and return the status dict."""
+        if not line.startswith("!"):
+            line = "!" + line
+        self._send(line)
+        magic, body = self._read_frame()
+        if magic == WORKER_ERROR:
+            raise WorkerError(body.decode("utf-8", "replace"))
+        if magic != WORKER_STATUS:
+            raise WorkerError("unexpected frame %r from ekho-worker" % magic)
+        return json.loads(body.decode("utf-8"))
+
+    def info(self):
+        return self.command("info")
+
+    def close(self):
+        if self._closed:
+            return
+        self._closed = True
+        for step in (lambda: self.proc.stdin.write(b"!quit\n"),
+                     lambda: self.proc.stdin.flush(),
+                     lambda: self.proc.stdin.close()):
+            try:
+                step()
+            except (BrokenPipeError, OSError, ValueError):
+                pass
+        try:
+            self.proc.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            self.proc.kill()
+            self.proc.wait()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        self.close()
+
+    def __del__(self):
+        try:
+            self.close()
+        except Exception:
+            pass
+
+
+_resident_worker = None
+
+
+def resident_worker(exe=None, args=()):
+    """The one worker this process shares. Spawned on first use."""
+    global _resident_worker
+    if _resident_worker is None:
+        _resident_worker = WorkerClient(exe or DEFAULT_WORKER, args)
+    return _resident_worker
+
+
+def speak_resident(text, exe=None, args=()):
+    """Speak via the shared resident worker; no HTTP, no cold start."""
+    return resident_worker(exe, args).speak(text)
+
+
+# ---------------------------------------------------------------------------
 # listen mode: FunASR's side only POSTs; this side synthesises-and-sounds.
 # ---------------------------------------------------------------------------
 
@@ -209,6 +371,15 @@ class ListenHandler(BaseHTTPRequestHandler):
     player = None
     save_dir = None
     timeout = DEFAULT_TIMEOUT
+    # When set, synthesis goes through this resident WorkerClient instead of
+    # HTTP: --worker on the listen command line, so the whole chain can run
+    # without a socket.
+    worker = None
+    # Two POSTs inside the same second used to land on the same --save-dir
+    # filename and the second overwrote the first; the counter makes every
+    # saved utterance its own file.
+    _saveSeq = 0
+    _saveLock = threading.Lock()
 
     def _reply(self, code, msg):
         body = (msg + "\n").encode("utf-8")
@@ -219,8 +390,10 @@ class ListenHandler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def do_GET(self):
-        # convenience: /health and /voices pass through to ekho-server
-        if self.path.split("?")[0] in ("/health", "/voices"):
+        # convenience: /health and /voices pass through to ekho-server (there
+        # is no upstream to ask when the worker backend is in use)
+        if (self.worker is None
+                and self.path.split("?")[0] in ("/health", "/voices")):
             try:
                 req = urllib.request.Request(self.upstream + self.path)
                 with urllib.request.urlopen(req, timeout=self.timeout) as resp:
@@ -247,16 +420,22 @@ class ListenHandler(BaseHTTPRequestHandler):
             if not text:
                 self._reply(400, "empty body")
                 return
-            wav = fetch_wait(self.upstream, text, self.timeout)
+            if self.worker is not None:
+                wav = self.worker.speak(text)
+            else:
+                wav = fetch_wait(self.upstream, text, self.timeout)
         except urllib.error.HTTPError as e:
             self._reply(502, "ekho-server %s" % e.code)
             return
         except Exception as e:
-            self._reply(502, "upstream: %s" % e)
+            self._reply(502, "synthesis failed: %s" % e)
             return
         ts = time.strftime("%Y%m%d-%H%M%S")
         if self.save_dir:
-            path = "%s/%s.wav" % (self.save_dir.rstrip("/"), ts)
+            with ListenHandler._saveLock:
+                ListenHandler._saveSeq += 1
+                seq = ListenHandler._saveSeq
+            path = "%s/%s-%03d.wav" % (self.save_dir.rstrip("/"), ts, seq)
             with open(path, "wb") as fh:
                 fh.write(wav)
             self._reply(200, "saved %d B -> %s" % (len(wav), path))
@@ -291,7 +470,9 @@ def listen_main(flags):
                     help="bind address (use 0.0.0.0 for other hosts)")
     ap.add_argument("--port", type=int, default=2047)
     ap.add_argument("--server", default=DEFAULT_SERVER,
-                    help="ekho-server base URL")
+                    help="ekho-server base URL (ignored with --worker)")
+    ap.add_argument("--worker", default=None, metavar="EXE",
+                    help="use this resident ekho-worker instead of HTTP")
     ap.add_argument("--play", default=None, help="player command; {} = wav path")
     ap.add_argument("--save-dir", default=None,
                     help="write WAVs here instead of playing")
@@ -301,13 +482,16 @@ def listen_main(flags):
     ListenHandler.player = resolve_player(args.play)
     ListenHandler.save_dir = args.save_dir
     ListenHandler.timeout = args.timeout
+    if args.worker:
+        ListenHandler.worker = WorkerClient(args.worker)
     if ListenHandler.player is None and args.save_dir is None:
         print("no aplay/paplay found and no --save-dir; refusing to run "
               "(every POST would 500)", file=sys.stderr)
         return 2
     httpd = ThreadingHTTPServer((args.bind, args.port), ListenHandler)
-    print("funasr_bridge listening on http://%s:%d (ekho-server %s, %s)"
-          % (args.bind, args.port, args.server,
+    print("funasr_bridge listening on http://%s:%d (%s, %s)"
+          % (args.bind, args.port,
+             "worker %s" % args.worker if args.worker else "ekho-server %s" % args.server,
              "save-dir" if args.save_dir else "player"))
     sys.stdout.flush()
     try:
@@ -358,10 +542,123 @@ def speak_main(flags):
     return 0
 
 
+def worker_main(flags):
+    ap = argparse.ArgumentParser(
+        prog="funasr_bridge.py worker",
+        description="Speak through the resident ekho-worker (pipe, no HTTP).")
+    ap.add_argument("text", nargs="*", help="text to speak; '-' or none reads stdin lines")
+    ap.add_argument("--exe", default=DEFAULT_WORKER,
+                    help="path to ekho-worker (default $EKHO_WORKER or PATH)")
+    ap.add_argument("--format", default="wav", choices=("wav", "pcm"))
+    ap.add_argument("--voice", default=None)
+    ap.add_argument("--samplerate", type=int, default=DEFAULT_RATE)
+    ap.add_argument("--channels", type=int, default=DEFAULT_CHANNELS)
+    ap.add_argument("--english-speed", type=int, default=None)
+    ap.add_argument("--play", default=None)
+    ap.add_argument("--save", default=None,
+                    help="save payload here (numbered when several texts)")
+    ap.add_argument("--no-warmup", action="store_true")
+    ap.add_argument("--info", action="store_true",
+                    help="print the worker's status JSON and exit")
+    args = ap.parse_args(flags)
+
+    wargs = ["--format", args.format,
+             "--samplerate", str(args.samplerate),
+             "--channels", str(args.channels)]
+    if args.voice:
+        wargs += ["--voice", args.voice]
+    if args.english_speed is not None:
+        wargs += ["--english-speed", str(args.english_speed)]
+    if args.no_warmup:
+        wargs += ["--no-warmup"]
+
+    try:
+        client = WorkerClient(args.exe, wargs)
+    except WorkerError as e:
+        print(str(e), file=sys.stderr)
+        return 3
+
+    try:
+        if args.info:
+            print(json.dumps(client.info(), ensure_ascii=False))
+            return 0
+
+        texts = [t for t in args.text if t.strip()]
+        if not texts or texts == ["-"]:
+            texts = [ln.strip() for ln in sys.stdin if ln.strip()]
+        if not texts:
+            print("no text given", file=sys.stderr)
+            return 2
+
+        player = resolve_player(args.play)
+        if player is None and args.save is None:
+            print("no aplay/paplay found; pass --save PATH or --play CMD",
+                  file=sys.stderr)
+            return 2
+
+        saved = []
+        for i, text in enumerate(texts):
+            t0 = time.time()
+            payload = client.speak(text)
+            dt = time.time() - t0
+            if args.save:
+                path = args.save
+                if len(texts) > 1:
+                    root, ext = os.path.splitext(args.save)
+                    path = "%s-%03d%s" % (root, i + 1, ext or ".wav")
+                with open(path, "wb") as fh:
+                    fh.write(payload)
+                saved.append(path)
+                print("saved %d B -> %s (%.2fs)" % (len(payload), path, dt))
+                continue
+            if args.format == "pcm":
+                cmd = ("%s -q -f S16_LE -r %d -c %d -t raw"
+                       % (player, args.samplerate, args.channels))
+                proc = subprocess.Popen(cmd, shell=True, stdin=subprocess.PIPE)
+                try:
+                    proc.stdin.write(payload)
+                finally:
+                    try:
+                        proc.stdin.close()
+                    except BrokenPipeError:
+                        pass
+                    proc.wait()
+                if proc.returncode != 0:
+                    print("player exited %d: %s" % (proc.returncode, cmd),
+                          file=sys.stderr)
+                    return 3
+                print("played %d B PCM (%.2fs)" % (len(payload), dt))
+            else:
+                fh = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
+                fh.write(payload)
+                fh.close()
+                try:
+                    play_file(player, fh.name)
+                finally:
+                    try:
+                        os.unlink(fh.name)
+                    except OSError:
+                        pass
+                print("played %d B (%.2fs)" % (len(payload), dt))
+        if saved:
+            print("saved %d file(s)" % len(saved))
+        return 0
+    except WorkerError as e:
+        print("ekho-worker: %s" % e, file=sys.stderr)
+        return 3
+    except ValueError as e:
+        print(str(e), file=sys.stderr)
+        return 2
+    finally:
+        client.close()
+
+
 def main():
     flags = sys.argv[1:]
     if flags and flags[0] == "listen":
         return listen_main(flags[1:])
+    if flags and flags[0] == "worker":
+        return worker_main(flags[1:])
     return speak_main(flags)
 
 

@@ -48,3 +48,5 @@
 *.wav.tmp
 /_work/
 /scripts/__pycache__/
+# MemSearch local memory store (per-machine, never part of the repo)
+.memsearch/

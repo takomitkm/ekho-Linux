@@ -86,7 +86,7 @@ make -j"$JOBS" > "$WORK/make.log" 2>&1 || {
   exit 1
 }
 echo "  OK"
-ls -la ekho ekho-stream ekho-server 2>/dev/null | sed 's/^/  /'
+ls -la ekho ekho-stream ekho-server ekho-worker 2>/dev/null | sed 's/^/  /'
 
 echo
 echo "=== 6. warnings ==="
@@ -96,7 +96,7 @@ grep 'warning:' "$WORK/make.log" | sed 's/.*warning: /  /' | sort | uniq -c | so
 echo
 echo "=== 7. copy artefacts back ==="
 mkdir -p "$SRC/out"
-for f in ekho ekho-stream ekho-server test_ekho; do
+for f in ekho ekho-stream ekho-server ekho-worker test_ekho; do
   [ -f "$f" ] && cp -f "$f" "$SRC/out/"
 done
 ls -la "$SRC/out" | sed 's/^/  /'
