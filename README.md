@@ -322,7 +322,59 @@ its data are identical either way -- `src/http_server.cpp` plus
 `src/ekho_server_main.cpp` is one module, `src/ekho_worker_main.cpp` is the
 other, and both link the same `libekho.a`.
 
-### 5. Feeding it from an ASR side
+### 5. Building for a board (aarch64)
+
+`scripts/build-cross-aarch64.sh` builds the board binaries with **no root
+anywhere** -- it downloads and unpacks a cross toolchain and a target
+libsndfile under `$WORK` (default `~/ekho-cross-root`) and leaves the rest of
+the machine alone:
+
+```bash
+scripts/build-cross-aarch64.sh                    # ekho-worker
+TARGETS="ekho-worker ekho-server" scripts/build-cross-aarch64.sh
+BOARD=root@192.168.1.113 scripts/build-cross-aarch64.sh
+```
+
+Three things that are easy to get wrong, and that the script exists to encode:
+
+* **The toolchain has to match the board's glibc.** The board runs Ubuntu
+  20.04 / glibc 2.31. A cross build with a current distro toolchain (gcc 15,
+  glibc 2.43) links fine and then refuses to start there: `version
+  'GLIBC_2.38' not found`. The script fetches focal's gcc-9 cross, whose
+  sysroot tops out at GLIBC_2.30, so the binary loads.
+* **libsndfile is not on the board in a usable form.** No headers, no static
+  library -- only `libsndfile.so.1`. The script builds a static, WAV/PCM-only
+  libsndfile for aarch64 and links it in, which also drops every codec
+  dependency.
+* **espeak-ng is only there as headers plus a shared library**, and that
+  library itself needs `libpcaudio`/`libsonic`/`libasound`/`libpulse`, which
+  the board has but a cross sysroot does not. The link is given
+  `-Wl,--allow-shlib-undefined` and the board's loader resolves them at run
+  time, so `ekho-worker` ends up needing exactly `libespeak-ng.so.1`,
+  `libpthread`, `libm`, `libgcc_s` and `libc` -- all present there.
+
+Deploying: `scp` on this setup does not carry the execute bit, so a fresh
+binary lands non-executable:
+
+```bash
+scp ekho-worker root@192.168.1.113:/root/ekho-bench/bin/
+ssh root@192.168.1.113 'chmod +x /root/ekho-bench/bin/ekho-worker'
+```
+
+Measured on the board (48 kHz stereo, the same one-line text each time):
+
+| | time |
+|---|---|
+| one-shot `ekho`, warm page cache | 0.76 s per utterance |
+| one-shot `ekho`, first run (cold cache) | 1.36 s |
+| `ekho-worker` startup (pack load + warm-up) | 1.04 s |
+| resident utterances afterwards | 0.55 s for 1.36 s of audio |
+
+and the resident worker's WAV is **byte-identical** (same md5) to the one-shot
+`ekho` output for the same text -- the pipe path changes how the engine is
+driven, not what it says.
+
+### 6. Feeding it from an ASR side
 
 `scripts/funasr_bridge.py` wraps both ends of that HTTP service for an ASR
 front end (FunASR or anything else):
