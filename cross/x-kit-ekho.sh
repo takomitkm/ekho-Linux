@@ -253,11 +253,11 @@ if [ -d "$XROOT/kit-espeak/share/espeak-ng-data" ]; then
     cp -RLf "$XROOT/kit-espeak/share/espeak-ng-data" "$KIT/share/espeak-ng-data"
     echo "  espeak data: $(find "$KIT/share/espeak-ng-data" -type f | wc -l) files (snapshot of kit-espeak's, so kit-ekho stands alone)"
 fi
-# Trim to Mandarin + Cantonese + English. Both sources above are left whole;
+# Trim to Mandarin + English. Both sources above are left whole;
 # only the kit's copies are cut. See cross/x-trim-data.sh for why each kept
 # file is read at runtime and each dropped one is not.
 if [ -f "$SRC/cross/x-trim-data.sh" ]; then
-    echo "  --- trim to Mandarin + Cantonese + English ---"
+    echo "  --- trim to Mandarin + English ---"
     bash "$SRC/cross/x-trim-data.sh" "$KIT/share/ekho-data" "$KIT/share/espeak-ng-data" \
         | sed 's/^/    /'
 else

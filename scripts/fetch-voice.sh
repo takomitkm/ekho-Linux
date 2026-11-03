@@ -7,9 +7,11 @@
 # GitHub rejects blobs over 100 MiB (limit effective since 2015-12), so no
 # fitting repository can carry them directly. Upstream's own README says the
 # same: voice files come from a download page. Upstream *does* track the small
-# Cantonese blob (`jyutping.voice`, 5.6 MB); this tree does not, only the
-# `.index` files (tens of KB) and the dictionaries. What a fresh clone misses,
-# this script fetches from SourceForge (page
+# Cantonese blob (`jyutping.voice`, 5.6 MB); this tree carries neither that blob
+# nor any Cantonese data at all -- since 2026-11-02 the only voice data here is
+# Mandarin (the other voices were removed on request), so what this script lays
+# out is the Mandarin wav tree plus the letter recordings. What a fresh clone
+# misses, this script fetches from SourceForge (page
 # `https://sourceforge.net/projects/e-guidedog/files/Ekho-Voice-Data/0.2/`),
 # verifies by size and md5, and unpacks into the working tree:
 #
@@ -18,9 +20,6 @@
 #   alphabet-wong-16000.tar.bz2         1,023,561 B  md5 12afa3533f718c6e48b1734a0bccf6e8
 #     -> ekho-data/alphabet/  16 kHz letter wavs (scripts/convert-alphabet.c upgrades
 #                             them to the pack's rate and keeps `*.wav.16k` beside)
-#   jyutping-wong-16000-v6.tar.bz2     19,579,224 B  md5 dca51880b917122b33a716cb0668bd88
-#     -> ekho-data/jyutping/  16 kHz Cantonese wav tree (the upstream-tracked
-#                             jyutping.voice regenerates from these)
 #
 # Nothing is ever overwritten: every copy step uses no-clobber semantics and
 # tar extraction uses --skip-old-files, so the script is idempotent and cannot
@@ -63,8 +62,6 @@ PINYIN_TAR=${PINYIN_TAR:-pinyin-yali-44100-wav-v10.tar.xz}
 PINYIN_TAR_MD5=${PINYIN_TAR_MD5:-080ce2cc066f6bc83b46b8bc0156a603}
 ALPHABET_TAR=alphabet-wong-16000.tar.bz2
 ALPHABET_MD5=12afa3533f718c6e48b1734a0bccf6e8
-JYUTPING_TAR=jyutping-wong-16000-v6.tar.bz2
-JYUTPING_MD5=dca51880b917122b33a716cb0668bd88
 
 for tool in curl tar md5sum; do
   command -v "$tool" >/dev/null 2>&1 || { echo "MISSING tool: $tool (needs curl, tar with xz/bz2 support, md5sum)" >&2; exit 1; }
@@ -88,7 +85,6 @@ fetch() { # <tarball> <md5>
 }
 fetch "$PINYIN_TAR"    "$PINYIN_TAR_MD5"
 fetch "$ALPHABET_TAR"  "$ALPHABET_MD5"
-fetch "$JYUTPING_TAR"  "$JYUTPING_MD5"
 
 echo "=== 2. lay out 44.1 kHz Mandarin wav tree -> ekho-data/pinyin/"
 mkdir -p "$DATA/pinyin"
@@ -111,11 +107,9 @@ tar -xf "$CACHE/$ALPHABET_TAR" -C "$STAGE" --skip-old-files
 cp -n "$STAGE"/alphabet/*.wav "$DATA/alphabet/" 2>/dev/null || true
 echo "  ekho-data/alphabet/: $(ls "$DATA/alphabet"/*.wav 2>/dev/null | wc -l) letter wavs (16 kHz originals; convert-alphabet does the rest)"
 
-echo "=== 4. lay out 16 kHz Cantonese wav tree -> ekho-data/jyutping/"
-mkdir -p "$DATA/jyutping"
-tar -xf "$CACHE/$JYUTPING_TAR" -C "$STAGE" --skip-old-files
-cp -n "$STAGE"/jyutping-wong-16000-v6/*.wav "$DATA/jyutping/" 2>/dev/null || true
-[ -f "$DATA/jyutping/COPYING-jyutping-wong" ] || cp -n "$STAGE/COPYING-jyutping-wong" "$DATA/jyutping/" 2>/dev/null || true
-echo "  ekho-data/jyutping/: $(ls "$DATA/jyutping" | wc -l) entries"
+echo "=== 4. (removed 2026-11-02) the 16 kHz Cantonese wav tree ==="
+# This step used to fetch jyutping-wong-16000-v6 and lay it out as
+# ekho-data/jyutping/. The Cantonese data was removed from the tree on request,
+# so fetching it again would only put back what the tree deliberately dropped.
 
 echo "=== done. Next steps are in this file's header: build-native, engine-generate 44.1k, convert-voice, convert-alphabet, reg-44k."

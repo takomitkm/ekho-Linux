@@ -1,6 +1,6 @@
 #!/bin/bash
 # ASCII only. Drop the runtime-dead parts of an assembled kit's data, so the
-# shipped kit carries Mandarin + Cantonese + English and nothing else.
+# shipped kit carries Mandarin + English and nothing else.
 #
 # usage: x-trim-data.sh [-n] EKHO_DATA_DIR [ESPEAK_DATA_DIR]
 #   -n   report what would go, delete nothing
@@ -12,16 +12,11 @@
 # Why each keep is a keep (checked in the source, not guessed):
 #
 #   zh.dict           loadMandarin() reads it when present (ekho_dict.cpp:215)
-#   zhy.dict          setLanguage(CANTONESE) reads it (ekho_dict.cpp:273)
 #   pinyin.voice      Mandarin audio, loadEkhoVoiceFile()
 #   pinyin.index      its offsets; setVoice() takes the .index path when the
 #                     index exists (ekho_dict.cpp:557)
-#   jyutping.voice    Cantonese audio
-#   jyutping.index    its offsets
 #   alphabet/         26 letter wavs read by addSpecialSymbols() on EVERY
 #                     setLanguage() call (ekho_dict.cpp:332)
-#   jyutping/         holds only COPYING-cantonese-wong, the licence for the
-#                     Cantonese voice data; it travels with the data
 #
 # Why each drop is a drop:
 #
@@ -36,19 +31,21 @@
 #                     exactly path+".index"/path+".voice", never .orig
 #   zh_list, zh_listx, zh_patch, zhy_list
 #                     loadEspeakDict() fallbacks, taken only when the .dict
-#                     is ABSENT; the kit ships both .dicts
+#                     is ABSENT; the kit ships zh.dict
 #   bo_list, ka_list, ko_list, ngangien_list, toisanese_list,
 #   hakka/, hangul/, ngangien/, toisanese/, piper/, friso-dict/
-#                     languages this kit does not ship, plus friso's lexicon
-#                     (its segmentation code is commented out in word.cpp and
-#                     it is not in Makefile.am, so friso-dict is never opened)
+#                     languages this kit does not ship (the tree carries the
+#                     Mandarin voice data alone since 2026-11-02), plus friso's
+#                     lexicon (its segmentation code is commented out in
+#                     word.cpp and it is not in Makefile.am, so friso-dict is
+#                     never opened)
 #   espeak's other ~95 *_dict and mbrola_ph/
 #                     English is the only language that reaches espeak; the
 #                     board has no mbrola. phondata/phonindex/phontab and
 #                     voices/ (+lang/) stay: they are the shared phoneme
 #                     tables and the voice/variant definitions (en-us+f3).
 #
-# /voices shrinks to Mandarin/Cantonese/English on purpose: the server probes
+# /voices shrinks to Mandarin/English on purpose: the server probes
 # each voice with setVoice() and loadEspeakDict() fails cleanly on a missing
 # file (ekho_dict.cpp:932), so the probe skips what is not shipped instead of
 # pretending.
@@ -67,14 +64,14 @@ ED_BEFORE=$(kb "$ED")
 
 echo "=== ekho-data: $ED_BEFORE KB in $(find "$ED" -type f | wc -l) files ==="
 
-# Top level of ekho-data: keep exactly the eight names above, whatever else
+# Top level of ekho-data: keep exactly the names above, whatever else
 # is there. Iterating the directory (not a fixed drop list) means a file
 # someone adds later is dropped too, and shows up in this report.
 for p in "$ED"/* "$ED"/.[!.]*; do
     [ -e "$p" ] || continue
     n=$(basename "$p")
     case $n in
-        zh.dict|zhy.dict|pinyin.voice|pinyin.index|jyutping.voice|jyutping.index|alphabet|jyutping)
+        zh.dict|pinyin.voice|pinyin.index|alphabet)
             printf '  keep %-18s %6s KB\n' "$n" "$(kb "$p")" ;;
         *)
             s=$(kb "$p"); f=$(find "$p" -type f 2>/dev/null | wc -l)

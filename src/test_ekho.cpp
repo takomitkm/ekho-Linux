@@ -88,43 +88,44 @@ int main(int argc, char**argv) {
   */
 
   // test dictionary
-  Dict dict(CANTONESE);
+  // Mandarin only: this tree carries the Mandarin voice data alone (2026-11-02),
+  // so a Cantonese Dict() here would just print "Fail to load espeak dictionary".
+  Dict dict(MANDARIN);
   list<PhoneticSymbol*> phons = dict.lookup("为什么，画面画画");
   for (list<PhoneticSymbol*>::iterator li = phons.begin(); li != phons.end(); li++) {
     cout << (*li)->symbol << " ";
   }
   cout << endl;
-  dict.setLanguage(MANDARIN);
   cout << "的拼音：" << dict.lookup(0x7684)->symbol << endl;
 
   // test numbers
-  Ekho wong("Cantonese");
-  wong.setOverlap(2048);
-  //wong.debug();
-  wong.blockSpeak("0.123456789");
-  wong.blockSpeak("192.168.0.1");
-  wong.blockSpeak("$54321 ￥99999");
-  wong.blockSpeak("50万 30.4亿 1234567890元 10086元");
-  wong.blockSpeak("50% 49.2%");
-  wong.blockSpeak("2014/12/23");
-  wong.blockSpeak("2014/1/23");
-  wong.blockSpeak("2014/12/2");
-  wong.blockSpeak("2014-12");
-  wong.blockSpeak("2014-12-23");
-  wong.blockSpeak("12/23/2014");
-  wong.blockSpeak("2014-1");
-  wong.blockSpeak("2014-1-2");
-  wong.blockSpeak("现在是2014年1月14日17:21:21");
-  wong.blockSpeak("17:21:21");
-  wong.blockSpeak("17:00:00");
-  wong.blockSpeak("1:00:00");
-  wong.blockSpeak("1:08");
-  wong.blockSpeak("上午08:00，下午1:00");
-  wong.blockSpeak("巴西2:1击败阿根廷");
-  wong.blockSpeak("详情请致电81234567查询");
-  wong.blockSpeak("a. b . c1 0 020, .314, 0.314, 10, 11, 20, 21, 100, 101, 110, 111, 1234");
-  wong.blockSpeak("圆周率是3.14");
-  wong.blockSpeak("为什么 hello world 123");
+  Ekho mandarin("Mandarin");
+  mandarin.setOverlap(2048);
+  //mandarin.debug();
+  mandarin.blockSpeak("0.123456789");
+  mandarin.blockSpeak("192.168.0.1");
+  mandarin.blockSpeak("$54321 ￥99999");
+  mandarin.blockSpeak("50万 30.4亿 1234567890元 10086元");
+  mandarin.blockSpeak("50% 49.2%");
+  mandarin.blockSpeak("2014/12/23");
+  mandarin.blockSpeak("2014/1/23");
+  mandarin.blockSpeak("2014/12/2");
+  mandarin.blockSpeak("2014-12");
+  mandarin.blockSpeak("2014-12-23");
+  mandarin.blockSpeak("12/23/2014");
+  mandarin.blockSpeak("2014-1");
+  mandarin.blockSpeak("2014-1-2");
+  mandarin.blockSpeak("现在是2014年1月14日17:21:21");
+  mandarin.blockSpeak("17:21:21");
+  mandarin.blockSpeak("17:00:00");
+  mandarin.blockSpeak("1:00:00");
+  mandarin.blockSpeak("1:08");
+  mandarin.blockSpeak("上午08:00，下午1:00");
+  mandarin.blockSpeak("巴西2:1击败阿根廷");
+  mandarin.blockSpeak("详情请致电81234567查询");
+  mandarin.blockSpeak("a. b . c1 0 020, .314, 0.314, 10, 11, 20, 21, 100, 101, 110, 111, 1234");
+  mandarin.blockSpeak("圆周率是3.14");
+  mandarin.blockSpeak("为什么 hello world 123");
 
 /*
   Ekho *wong2 = new Ekho("Cantonese");

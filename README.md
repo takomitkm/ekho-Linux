@@ -60,7 +60,7 @@ Added on top of upstream:
   converter reads, and both pairs are gitignored, so a clone has to supply them before
   the pack can be re-derived or the regression anchor run. `scripts/fetch-voice.sh`
   downloads the pinned upstream sources (SourceForge 0.2, sizes and md5s in its
-  header) and lays `pinyin/`, `jyutping/` and the 16 kHz letter wavs out.
+  header) and lays `pinyin/` and the 16 kHz letter wavs out.
   The rate follows the target board: its only playback device accepts
   48 kHz / S16_LE / 2ch and nothing else, so `ekho`, `ekho-server` and `ekho-stream`
   all default there, and pack rate equals output rate -- no sonic resample on every
@@ -92,8 +92,10 @@ Added on top of upstream:
   48 kHz pack and made things worse (worst 3.4%), so `quiet_level` stays equal to
   `mOverlap` there; see the comment in `src/libekho_impl.cpp`. The ~11% and ~12%
   figures that used to sit in this section were artifacts of the rejected 8 kHz pack.
-  **Cantonese is not converted**: `jyutping.voice` is still 16 kHz, so that voice does
-  get resampled at run time.
+  **Only the Mandarin pack is shipped**, and it is the 48 kHz one, so nothing is
+  resampled at run time for the default voice. (Cantonese used to be the exception
+  -- its `jyutping.voice` stayed 16 kHz -- but that voice is no longer in the tree;
+  see "This fork: Linux only".)
 
   **The alphabet samples are converted as well, and conversion alone is not
   enough.** `ekho-data/alphabet/*.wav` -- the 26 per-letter recordings behind
@@ -106,15 +108,16 @@ Added on top of upstream:
   `PhoneticSymbol::readSndfile()` (`src/resample.h`, the same windowed-sinc kernel
   as `convert-voice`). A lone `K` now renders in 0.110 s at *every* combination --
   48 kHz or 44.1 kHz pack, 48 kHz or 44.1 kHz output, mono or stereo -- where it
-  used to be 0.041-0.044 s, and Cantonese letters (16 kHz pack) are unchanged at
-  0.291 s. The tempo itself is the pack's usual one: Mandarin speeds the recorded
-  syllables up 2.39x (`baseDelta` 139), letters included.
+  used to be 0.041-0.044 s. (The Cantonese letters were 0.291 s under the 16 kHz
+  pack; that voice data is no longer carried.) The tempo itself is the pack's
+  usual one: Mandarin speeds the recorded syllables up 2.39x (`baseDelta` 139),
+  letters included.
 
 ### Known issues
 
-* **Voice data must be supplied.** `ekho-data/*.voice` and the pinyin/jyutping
-  sample trees are not in the repository (they are large binaries); the `.index`
-  files are. A fresh clone builds but cannot synthesise until voice data is
+* **Voice data must be supplied.** `ekho-data/*.voice` and the pinyin sample
+  tree are not in the repository (they are large binaries); the `.index` files
+  are. A fresh clone builds but cannot synthesise until voice data is
   dropped into `ekho-data/`, or `EKHO_DATA_PATH` points at a directory that has
   it. Ekho writes `.index`/`.voice` into that directory when the index is missing,
   so it must be writable -- that is the historical reason people ran it as root
@@ -122,6 +125,13 @@ Added on top of upstream:
   `scripts/fetch-voice.sh` fetches the upstream sources (md5-pinned, SourceForge
   0.2 page) and lays them out; the build-generate-convert-anchor recipe sits in
   its header.
+* **Mandarin is the only voice this tree carries** (decided 2026-11-02). The
+  dictionaries and sample trees for Cantonese, Toisanese, Hakka, Tibetan,
+  Korean and Ngangien were removed; the code still knows those languages, so a
+  data directory that supplies them still works, but nothing here ships them and
+  `scripts/fetch-voice.sh` will not bring them back. `GET /voices` on a server
+  started from this tree lists what it actually loaded -- Mandarin, plus English
+  through espeak-ng.
 * **Nothing plays audio by itself.** `ekho "text"` without `-o` produces no sound
   (there is no `--play`; see the ALSA bullet above), and `Ekho::blockSpeak()` is a
   stub. The board's speaker has been probed and accepts 48 kHz / S16_LE / 2ch only
@@ -199,7 +209,7 @@ interface unless told otherwise), `--voice=VOICE`, `--samplerate=HZ`,
 | `POST /tts` | chunked 16-bit PCM (`audio/L16;rate=48000;channels=2;bit=16`), emitted clause by clause while the text is still being synthesised |
 | `POST /tts?wait=1` | one complete WAV (`audio/wav`) with a correct `Content-Length` |
 | `GET /health` | `{"status":"ok","voice":"Mandarin","sample_rate":48000,"channels":2,"ring_ms":4000}` |
-| `GET /voices` | `{"default":"Mandarin","voices":["Mandarin","Cantonese","English"]}` |
+| `GET /voices` | `{"default":"Mandarin","voices":["Mandarin","English"]}` (probed at startup; this tree ships Mandarin data, so Cantonese and the other languages are absent -- the list shrinks to what could actually be loaded) |
 
 The request body is the UTF-8 text, either Content-Length framed or chunked.
 `?wait=1` and the stream carry the same samples -- the WAV is exactly the

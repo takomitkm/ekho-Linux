@@ -132,10 +132,8 @@ install-data-hook:
 if DIST_VOICE_DATA
 	@if [ -d "$(DATA_DIR)/alphabet" ]; then cp -RLf $(DATA_DIR)/alphabet $(DESTDIR)$(datadir)/ekho-data/; fi
 	@if [ -d "$(DATA_DIR)/pinyin"   ]; then cp -RLf $(DATA_DIR)/pinyin   $(DESTDIR)$(datadir)/ekho-data/; fi
-	@if [ -d "$(DATA_DIR)/jyutping" ]; then cp -RLf $(DATA_DIR)/jyutping $(DESTDIR)$(datadir)/ekho-data/; fi
-	@for f in zhy_list zh_list zh_listx zh_patch zhy.dict zh.dict ka_list bo_list ko_list \
-	         ngangien_list pinyin.index pinyin.voice jyutping.index jyutping.voice \
-	         toisanese_list; do \
+	@for f in zh_list zh_listx zh_patch zh.dict \
+	         pinyin.index pinyin.voice; do \
 	    [ -f "$(DATA_DIR)/$$f" ] && install -m 644 "$(DATA_DIR)/$$f" $(DESTDIR)$(datadir)/ekho-data/; \
 	done
 endif

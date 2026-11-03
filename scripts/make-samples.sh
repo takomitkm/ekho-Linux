@@ -14,7 +14,7 @@
 # One thing to know before reading the output: `-v English` / `-v en` used to
 # reach a stub that returned silence; it synthesises through espeak-ng now (see
 # README.md, "Added on top of upstream"). English words inside Chinese text go
-# through the same espeak-ng path, so the group-03 files use Mandarin on purpose
+# through the same espeak-ng path, so the group-02 files use Mandarin on purpose
 # -- that is the mixed-language case a caller actually hits.
 set -u
 
@@ -33,12 +33,13 @@ for p in "$EKHO" "$EKHO_STREAM"; do
 done
 
 Z1="$OUT/01-zh-mandarin"      # numbers, money, units, polyphones, erhua, mixed script, prose
-Y="$OUT/02-yue-cantonese"     # the jyutping pack; 16 kHz, so these files are half the size
-E="$OUT/03-en-english"        # espeak-ng through a Chinese voice (see header)
-S="$OUT/04-streaming"         # one-shot vs segmented vs "as an LLM emits it"
-L="$OUT/05-en-speed"          # the same sentence at six espeak rates, to pick a default
-T="$OUT/06-en-tone"           # 100 wpm: six voices, plus four nearby rates
-mkdir -p "$Z1" "$Y" "$E" "$S" "$L" "$T"
+E="$OUT/02-en-english"        # espeak-ng through a Chinese voice (see header)
+S="$OUT/03-streaming"         # one-shot vs segmented vs "as an LLM emits it"
+L="$OUT/04-en-speed"          # the same sentence at six espeak rates, to pick a default
+T="$OUT/05-en-tone"           # 100 wpm: six voices, plus four nearby rates
+# The Cantonese group that used to sit at 02 was removed 2026-11-02 with the
+# Cantonese voice data (this tree now ships the Mandarin data alone).
+mkdir -p "$Z1" "$E" "$S" "$L" "$T"
 
 # text, wav, voice, the text
 gen() {
@@ -69,17 +70,9 @@ gen "$Z1/09-service-register.txt"   "$Z1/09-service-register.wav"   Mandarin \
 gen "$Z1/10-prose-spring.txt"       "$Z1/10-prose-spring.wav"       Mandarin \
     '盼望着，盼望着，东风来了，春天的脚步近了。一切都像刚睡醒的样子，欣欣然张开了眼。山朗润起来了，水涨起来了，太阳的脸红起来了。'
 
-echo "=== 02-yue-cantonese (16 kHz) ==="
-gen "$Y/11-cantonese-tea.txt"       "$Y/11-cantonese-tea.wav"       Cantonese \
-    '今日天气好好，我哋一齐去饮茶啦。'
-gen "$Y/12-cantonese-order.txt"     "$Y/12-cantonese-order.wav"     Cantonese \
-    '呢个订单系一千二百八十蚊半，打个八五折。'
-gen "$Y/13-cantonese-question.txt"  "$Y/13-cantonese-question.wav"  Cantonese \
-    '你食咗饭未啊？我仲未食，等你一齐。'
-
-echo "=== 03-en-english (44.1 kHz, Mandarin voice on ASCII text) ==="
+echo "=== 02-en-english (44.1 kHz, Mandarin voice on ASCII text) ==="
 # At the compiled defaults: 100 wpm and the eSpeak voice 'en-us+f3' (both
-# picked by ear 2026-10-17; see groups 05 and 06).
+# picked by ear 2026-10-17; see groups 04 and 05).
 gen "$E/14-harvard-sentences.txt"   "$E/14-harvard-sentences.wav"   Mandarin \
     'The birch canoe slid on the smooth planks. Glue the sheet to the dark blue background. It is easy to tell the depth of a well.'
 gen "$E/15-pangram-and-twister.txt" "$E/15-pangram-and-twister.wav" Mandarin \
@@ -87,7 +80,7 @@ gen "$E/15-pangram-and-twister.txt" "$E/15-pangram-and-twister.wav" Mandarin \
 gen "$E/16-english-numbers.txt"     "$E/16-english-numbers.wav"     Mandarin \
     'The meeting is on October 16th, 2026, at 9:30 in the morning. The total is one thousand two hundred eighty dollars and fifty cents.'
 
-echo "=== 05-en-speed (the same sentence at six espeak rates) ==="
+echo "=== 04-en-speed (the same sentence at six espeak rates) ==="
 # English is read by espeak-ng, and its rate is independent of -s, which only
 # moves the Chinese tempo. This fork used to land on 140 wpm by accident -- an
 # explicit --english-speed was dropped before espeak existed, and initEnglish()
@@ -103,7 +96,7 @@ for wpm in 80 100 120 140 160 175; do
     printf '  %-34s %s (%d wpm)\n' "$(basename "$out")" "$( [ -s "$out" ] && echo ok || echo FAILED)" "$wpm"
 done
 
-echo "=== 06-en-tone (six voices at 100 wpm + four nearby rates) ==="
+echo "=== 05-en-tone (six voices at 100 wpm + four nearby rates) ==="
 # Round two of the same choice. At a slow rate eSpeak stretches every segment
 # instead of resampling, so a slower voice is not simply "the same voice,
 # slower" -- the timbre smears. The voice is the lever that does not touch the
@@ -124,7 +117,7 @@ for wpm in 110 120 130 140; do
     printf '  %-34s %s (%d wpm)\n' "$(basename "$out")" "$( [ -s "$out" ] && echo ok || echo FAILED)" "$wpm"
 done
 
-echo "=== 04-streaming (same text, three ways) ==="
+echo "=== 03-streaming (same text, three ways) ==="
 LONG='市气象台今天上午发布消息，未来三天本市以晴到多云为主，最高气温22度，最低气温9度，早晚温差较大，请市民注意增减衣物。另外，明天早高峰期间，地铁一号线和四号线将缩短发车间隔。'
 printf '%s' "$LONG" > "$S/17-long-news.txt"
 "$EKHO"        -v Mandarin -f "$S/17-long-news.txt" -o "$S/17-oneshot.wav"             >/dev/null 2>&1

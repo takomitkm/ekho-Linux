@@ -73,7 +73,12 @@ hr "1. correctness: streaming must not lose audio"
 # few bytes from run to run: espeak-ng is not reproducible (see the note under
 # section 7). That is why the check below is a tolerance and not an equality --
 # pure-Chinese text round-trips byte-identically, which section 2 covers.
-for v in Mandarin Cantonese; do
+#
+# Mandarin only, since 2026-11-02: this tree ships the Mandarin voice data
+# alone (see README, "This fork: Linux only" -- the other voices were removed
+# on request). The loop stays a loop so a data directory that still carries
+# other voices can be put through the same assertions.
+for v in Mandarin; do
   echo "  --- $v ---"
   "$OUT/ekho" -v "$v" -f "$SIM/zh_long.txt" -o "$SIM/k_oneshot.wav" >/dev/null 2>&1
   printf '    %-38s %9s B  %8s s\n' "one-shot CLI (reference)" \
