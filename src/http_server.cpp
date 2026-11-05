@@ -371,8 +371,12 @@ ssize_t HttpBodyReader::read(char* out, size_t maxLen) {
     std::string line;
     for (;;) {
       if (!readLine(line)) {
+        // EOF where a chunk-size line is due. A well-formed body always ends
+        // with the zero chunk, so this is a truncated stream, not a clean
+        // end -- reporting 0 here made truncation indistinguishable from
+        // completion.
         done_ = true;
-        return 0;
+        return -1;
       }
       // Strip any chunk extension (";name=value").
       size_t semi = line.find(';');

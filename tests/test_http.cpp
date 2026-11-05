@@ -440,10 +440,11 @@ int main() {
       EK_EQ(b.read(out, sizeof out), -1);
     }
 
-    // A chunked body that ends without its terminating zero chunk. The body
-    // half is complete and every data chunk was well framed, so this reads as
-    // a clean end (0) -- a truncated stream is indistinguishable from a
-    // finished one. Found 2026-11-05; unfixed.
+    // A chunked body that ends without its terminating zero chunk: the body
+    // half is complete and every data chunk was well framed, but the framing
+    // never finished, so this is malformed (-1). It used to read as a clean
+    // end (0), making a truncated stream indistinguishable from a finished
+    // one (found 2026-11-05, fixed 2026-11-06).
     {
       Pair p;
       sendAll(p.a, "5\r\nhello\r\n", 11);
@@ -451,9 +452,7 @@ int main() {
       HttpBodyReader b(p.b, true, 0);
       char out[16];
       EK_EQ(b.read(out, sizeof out), 5);
-      EK_KNOWN(b.read(out, sizeof out) == -1,
-               "a chunked body whose final zero chunk never arrived reads as "
-               "a clean end (0), not a malformed body (-1)");
+      EK_EQ(b.read(out, sizeof out), -1);
     }
   }
 
