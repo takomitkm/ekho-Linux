@@ -1,0 +1,94 @@
+# ekho-linux: voice-pack build pipeline.
+#
+# Reproduces the shipped 48 kHz Mandarin pack from its upstream source and
+# gates it on the recorded byte anchors, then runs the full assertion tier:
+#
+#   fetch (SourceForge, md5-pinned v3 wav tree)
+#     -> engine-generate the 44.1 kHz pair (exactly 125,287,518 B)
+#     -> convert-voice to 48 kHz (exactly 136,359,454 B)
+#     -> convert-alphabet to the pack rate
+#     -> scripts/reg-44k.sh: all seven 44.1 kHz renders byte-identical
+#     -> make check (unit tier + a synthesising engine smoke)
+#     -> scripts/sim.sh + scripts/server-test.sh
+#
+# The artefact is what the board kit's data directory needs: the 48 kHz pack
+# plus the converted 26 letter wavs. Triggered by hand, or on push when
+# anything the pack depends on changes. SourceForge is the only external
+# dependency and the fetch script retries on its own.
+name: pack
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'scripts/fetch-voice.sh'
+      - 'scripts/convert-voice.c'
+      - 'scripts/convert-alphabet.c'
+      - 'scripts/reg-44k.sh'
+      - 'scripts/reg-44k/**'
+      - '.github/workflows/pack.yml'
+
+jobs:
+  pack:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y autoconf automake libtool pkg-config \
+            libsndfile1-dev libespeak-ng-dev
+
+      - name: Build the engine
+        run: |
+          ./autogen.sh
+          ./configure --prefix="$PWD/prefix" \
+                      --with-alsa --with-sonic \
+                      --without-pulseaudio --without-curl \
+                      --disable-dist-voice
+          make -j"$(nproc)"
+
+      - name: Fetch the 44.1 kHz wav tree
+        run: bash scripts/fetch-voice.sh
+
+      - name: Regenerate the 44.1 kHz pair and convert to 48 kHz
+        run: |
+          set -eux
+          mv ekho-data/pinyin.index ekho-data/pinyin.index.tracked
+          printf '你好，世界。\n' > /tmp/gen.txt
+          EKHO_DATA_PATH="$PWD/ekho-data" ./ekho -v Mandarin -f /tmp/gen.txt -o /tmp/gen.wav
+          mv ekho-data/pinyin.index ekho-data/pinyin.index.44k
+          mv ekho-data/pinyin.voice ekho-data/pinyin.voice.44k
+          mv ekho-data/pinyin.index.tracked ekho-data/pinyin.index
+          cc -O2 -o convert-voice scripts/convert-voice.c -lsndfile -lm
+          ./convert-voice ekho-data/pinyin.voice.44k ekho-data/pinyin.index.44k 48000 \
+                          ekho-data/pinyin.voice ekho-data/pinyin.index
+          cc -O2 -o convert-alphabet scripts/convert-alphabet.c -lsndfile -lm
+          ./convert-alphabet ekho-data/alphabet 48000
+
+      - name: Byte anchors, unit tier, integration tier
+        run: |
+          export EKHO="$PWD/ekho" DATA="$PWD/ekho-data"
+          bash scripts/reg-44k.sh reg-44k-out
+          export EKHO_DATA_PATH="$PWD/ekho-data" SRC="$PWD" OUT="$PWD"
+          make check
+          bash scripts/sim.sh
+          bash scripts/server-test.sh
+
+      - name: Pack the artefacts
+        run: |
+          mkdir -p pack
+          cp ekho-data/pinyin.voice ekho-data/pinyin.index pack/
+          cp ekho-data/alphabet/*.wav pack/
+          tar czf "ekho-voice-48k-${GITHUB_SHA::7}.tar.gz" -C pack .
+          ls -la "ekho-voice-48k-${GITHUB_SHA::7}.tar.gz"
+
+      - name: Upload the pack
+        uses: actions/upload-artifact@v4
+        with:
+          name: ekho-voice-48k-${{ github.sha }}
+          path: ekho-voice-48k-*.tar.gz
+          retention-days: 14
+          if-no-files-found: error
