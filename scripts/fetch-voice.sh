@@ -15,8 +15,9 @@
 # `https://sourceforge.net/projects/e-guidedog/files/Ekho-Voice-Data/0.2/`),
 # verifies by size and md5, and unpacks into the working tree:
 #
-#   pinyin-yali-44100-wav-v10.tar.xz   51,790,860 B  md5 080ce2cc066f6bc83b46b8bc0156a603
-#     -> ekho-data/pinyin/   44.1 kHz Mandarin wav tree (yali voice, 2021-03-22 tarball)
+#   pinyin-huang-44100-wav-v3.tar.xz   86,325,048 B  md5 10dd1cff22f88c202ef31b368c672184
+#     -> ekho-data/pinyin/   44.1 kHz Mandarin wav tree (huang voice; see the
+#                             provenance note below for why this and not yali)
 #   alphabet-wong-16000.tar.bz2         1,023,561 B  md5 12afa3533f718c6e48b1734a0bccf6e8
 #     -> ekho-data/alphabet/  16 kHz letter wavs (scripts/convert-alphabet.c upgrades
 #                             them to the pack's rate and keeps `*.wav.16k` beside)
@@ -43,14 +44,21 @@
 #   convert-alphabet ekho-data/alphabet 48000     # 16 kHz -> pack rate, keeps *.wav.16k
 #   scripts/reg-44k.sh                            # 44.1 kHz byte anchor + 48 kHz tempo check
 #
-# Provenance caveat, recorded 2026-10-21: the tracked pair of 44.1 kHz
-# originals (pinyin.voice.44k, 125,287,518 B, md5 E9632C7F4AD3C829B5880699B16A2A39)
-# was built before any source artifact was recorded on disk; the wav tree it
-# came from is no longer around. yali-v10 is the current, actively-downloaded
-# 44.1 kHz Mandarin pack on the 0.2 page, so it is this script's default; if
-# scripts/reg-44k.sh's 44.1 kHz byte anchors fail after a fresh regeneration,
-# the other packs on that page (pinyin-huang-44100-wav-v3.tar.xz and older
-# revisions) are the next suspects.
+# Provenance, recorded 2026-10-21 and settled 2026-11-06: the tracked pair of
+# 44.1 kHz originals (pinyin.voice.44k, 125,287,518 B) was built before any
+# source artifact was recorded on disk. The 2026-10-21 guess -- yali-v10 --
+# turned out wrong when the whole pipeline was replayed from the 0.2 page:
+# yali-v10 regenerates a pack of 63,679,170 B whose de5 chunk is half as long,
+# so setSpeed()'s baseDelta lands on 0 (no tempo normalisation, speech 2.4x
+# slower than intended) and one of its chunks has a WAV header with zero
+# frames, which convert-voice refuses. pinyin-huang-44100-wav-v3 is the tree
+# the pack came from: regenerated 44.1 kHz pair is exactly 125,287,518 B, the
+# 48 kHz conversion exactly 136,359,454 B, setSpeed baseDelta=139, all seven
+# scripts/reg-44k.sh byte anchors reproduce identically and sim.sh/server-test
+# pass end to end (verified 2026-11-06). The container md5 of a regenerated
+# pair still differs from the tracked one (E9632C7F4AD3C829B5880699B16A2A39 for
+# pinyin.voice.44k) -- same size, same renders, different chunk-writer bytes;
+# the anchors are the authority, not the container hash.
 
 set -e
 
@@ -58,8 +66,8 @@ SF_BASE=${SF_BASE:-https://downloads.sourceforge.net/project/e-guidedog/Ekho-Voi
 CACHE=${EKHO_VOICE_CACHE:-$HOME/.cache/ekho-voice}
 DATA=$(cd "$(dirname "$0")/.." && pwd)/ekho-data
 STAGE=$CACHE/unpack
-PINYIN_TAR=${PINYIN_TAR:-pinyin-yali-44100-wav-v10.tar.xz}
-PINYIN_TAR_MD5=${PINYIN_TAR_MD5:-080ce2cc066f6bc83b46b8bc0156a603}
+PINYIN_TAR=${PINYIN_TAR:-pinyin-huang-44100-wav-v3.tar.xz}
+PINYIN_TAR_MD5=${PINYIN_TAR_MD5:-10dd1cff22f88c202ef31b368c672184}
 ALPHABET_TAR=alphabet-wong-16000.tar.bz2
 ALPHABET_MD5=12afa3533f718c6e48b1734a0bccf6e8
 
