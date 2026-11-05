@@ -31,33 +31,37 @@ using namespace ekho;
  * Filter tags:
  * Ex: <speak><mark name="0:8"/>屏幕阅读器启用。</speak>
  * <speak><mark name="0:1"/>左 <mark name="2:7"/>Shift </speak>
+ *
+ * Real-world SSML carries attributes (<speak version="1.0" xml:lang="zh">)
+ * and may arrive as several wrappers in a row, so the tags are stripped
+ * positionally instead of being paired: the closing needle used to be built
+ * from the whole opening tag text (</speak version="1.0">), which never
+ * matched, and the pairing required the closer to sit at the very end -- tags
+ * then reached the engine and were read aloud, and two consecutive wrappers
+ * left debris between them.
  */
 string Ssml::stripTags(const string& text) {
-  int first_lt = text.find("<speak");
-  int first_gt;
-  if (first_lt == 0) {
-    first_gt = text.find('>');
-    if (first_gt > 0) {
-      string tag = text.substr(first_lt + 1, first_gt - first_lt - 1);
-      string endtag("</");
-      endtag += tag + ">";
-      long unsigned last_endtag = text.rfind(endtag);
-      if (last_endtag == text.length() - endtag.length())
-        // recursively process
-        return Ssml::stripTags(text.substr(first_gt + 1,
-                           last_endtag - first_gt - 1));
-    }
+  string out = text;
+
+  // <mark .../> self-closing markers.
+  size_t pos;
+  while ((pos = out.find("<mark")) != string::npos) {
+    size_t end = out.find("/>", pos);
+    if (end == string::npos) break;  // malformed: leave the rest untouched
+    out.erase(pos, end + 2 - pos);
   }
 
-  first_lt = text.find("<mark");
-  if (first_lt >= 0) {
-    first_gt = text.find("/>");
-    if (first_gt > first_lt) {
-      return Ssml::stripTags(text.substr(0, first_lt) + text.substr(first_gt + 2, text.length() - first_gt - 2));
-    }
+  // <speak ...> openers (attributes allowed) and </speak> closers.
+  while ((pos = out.find("<speak")) != string::npos) {
+    size_t gt = out.find('>', pos);
+    if (gt == string::npos) break;
+    out.erase(pos, gt + 1 - pos);
+  }
+  while ((pos = out.find("</speak>")) != string::npos) {
+    out.erase(pos, 8);
   }
 
-  return text;
+  return out;
 }
 
 // sample: <audio src=\"%s%s\">%s</audio>

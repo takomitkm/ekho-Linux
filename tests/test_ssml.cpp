@@ -3,10 +3,10 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  *
  * Covers src/ssml.cpp. The screen-reader path feeds SSML straight into these
- * functions, so the contract is "tags in, plain text out" -- and the cases
- * below show where that contract currently leaks (xfail marks, found
- * 2026-11-05, unfixed): a <speak> tag with attributes, and consecutive
- * <speak> blocks, come out with tags still in them or mangled.
+ * functions, so the contract is "tags in, plain text out". Two leaks in that
+ * contract -- a <speak> tag with attributes, and consecutive <speak> blocks
+ * coming out with tags still in them or mangled -- were found 2026-11-05 and
+ * fixed 2026-11-06; the cases below assert the fixed behaviour directly.
  **************************************************************************/
 #include "check.h"
 
@@ -46,21 +46,19 @@ int main() {
   EK_STREQ(Ssml::stripTags("pre<mark name=\"1\"/>post"), "prepost");
 
   // -------------------------------------------------------------------------
-  EK_SECTION("stripTags: documented gaps, currently broken");
-  // A <speak> with attributes builds the closing-tag needle from the whole
-  // opening tag text (</speak version="1.0">), which never matches, so the
-  // tags reach the engine and are read aloud or dropped as garbage.
-  // Real SSML always carries version/xml:lang. Found 2026-11-05; unfixed.
-  EK_KNOWN_STREQ(Ssml::stripTags("<speak version=\"1.0\">\xE4\xBD\xA0\xE5\xA5\xBD</speak>"), "\xE4\xBD\xA0\xE5\xA5\xBD",
-                 "closing-tag needle includes the attributes, never matches");
-  // One wrapper only: two <speak> blocks pair the first opener with the LAST
-  // closer and mangle what is between.
-  EK_KNOWN_STREQ(Ssml::stripTags("<speak>a</speak><speak>b</speak>"), "ab",
-                 "rfind pairs the outer tags and leaves debris");
-  // Content after the closing tag also blocks the match (the needle must sit
-  // at the very end). Current rule: return the text untouched.
+  EK_SECTION("stripTags: attributes and repeated wrappers");
+  // A <speak> with attributes used to build the closing-tag needle from the
+  // whole opening tag text (</speak version="1.0">), which never matches, so
+  // the tags reached the engine and were read aloud. Real SSML always
+  // carries version/xml:lang (found 2026-11-05, fixed 2026-11-06).
+  EK_STREQ(Ssml::stripTags("<speak version=\"1.0\">\xE4\xBD\xA0\xE5\xA5\xBD</speak>"), "\xE4\xBD\xA0\xE5\xA5\xBD");
+  // Two <speak> blocks used to pair the first opener with the LAST closer
+  // and mangle what is between; tags are removed positionally now.
+  EK_STREQ(Ssml::stripTags("<speak>a</speak><speak>b</speak>"), "ab");
+  // Content after the closing tag used to block the match as well; tags are
+  // markup wherever they sit, so they go now.
   EK_STREQ(Ssml::stripTags("<speak>\xE4\xBD\xA0\xE5\xA5\xBD</speak>trailing"),
-           "<speak>\xE4\xBD\xA0\xE5\xA5\xBD</speak>trailing");
+           "\xE4\xBD\xA0\xE5\xA5\xBDtrailing");
 
   // -------------------------------------------------------------------------
   EK_SECTION("isAudio / getAudioPath");

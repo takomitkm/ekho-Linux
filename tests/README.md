@@ -45,75 +45,70 @@ case nobody will maintain.
 | # | failure mode | asserted by | status |
 |---|---|---|---|
 | 1 | one digit maps to the wrong numeral | `test_normalize` digits table | green |
-| 2 | place words transposed or missing ("12" as 千二, "10086" without 万) | `test_normalize` place sections | **xfail, defect D1/D2/D3** |
-| 3 | trailing zero spoken ("10" as 十零) | `test_normalize` zeros section | **xfail, defect D3** |
-| 4 | unit word mojibake (kHz as 千赴, dB as 分贤, ...) | `test_normalize` unit words | **xfail, defect D4** |
-| 5 | unit spoken before the number ("12.5V" as 伏十二点五) | `test_normalize` unit order | **xfail, defect D5** |
+| 2 | place words transposed or missing ("12" as 千二, "10086" without 万) | `test_normalize` place sections | green (fixed 2026-11-06) |
+| 3 | trailing zero spoken ("10" as 十零) | `test_normalize` zeros section | green (fixed 2026-11-06) |
+| 4 | unit word mojibake (kHz as 千赴, dB as 分贤, ...) | `test_normalize` unit words | green (fixed 2026-11-06) |
+| 5 | unit spoken before the number ("12.5V" as 伏十二点五) | `test_normalize` unit order | green (fixed 2026-11-06) |
 | 6 | a cut lands inside a CJK character or splits "12.5" | `test_normalize` cut sweep (every cap × force) | green (this is the regression net for the fixed `matchLen` byte-match bug) |
 | 7 | flush fires on a lonely comma, or never fires | `test_normalize` flush section | green |
 | 8 | ring loses or reorders samples across wraparound | `test_pcmring` FIFO/wraparound | green |
-| 9 | ring drops the newest frames of an oversized burst and miscounts | `test_pcmring` oversized write | **xfail, defect D6** |
-| 10 | ring parks a producer forever / crash on capacity 0 | `test_pcmring` zero capacity, abort | **xfail, defect D7** |
+| 9 | ring drops the newest frames of an oversized burst and miscounts | `test_pcmring` oversized write | green (fixed 2026-11-06) |
+| 10 | ring parks a producer forever / crash on capacity 0 | `test_pcmring` zero capacity, abort | green (fixed 2026-11-06) |
 | 11 | backpressure drops instead of blocking | `test_pcmring` blocking-write sections | green |
 | 12 | a request line/header/query parsed wrong (dispatch to the wrong handler) | `test_http` live request sections | green |
 | 13 | last header line silently dropped (the CRLF bug fixed in the source) | `test_http` "last header is not dropped" | green |
 | 14 | body bytes pipelined into the request head are lost | `test_http` pipelined section | green |
 | 15 | truncated body reads as a clean end (framing guessed) | `test_http` Content-Length truncation | green |
-| 16 | chunked body without its final zero chunk reads as complete | `test_http` chunked truncation | **xfail, defect D8** |
+| 16 | chunked body without its final zero chunk reads as complete | `test_http` chunked truncation | green (fixed 2026-11-06) |
 | 17 | malformed chunk size hangs or crashes the decoder | `test_http` chunked malformed table | green |
 | 18 | unframed POST reads to EOF instead of 411 | `test_http` 411 section | green |
 | 19 | `Expect: 100-continue` unanswered (uploading client stalls) | `test_http` 100-continue section | green |
 | 20 | unbounded threads per connection | `test_http` 503 flood section | green |
-| 21 | SSML tags with attributes survive stripping | `test_ssml` attribute section | **xfail, defect D9** |
-| 22 | consecutive `<speak>` blocks mangled | `test_ssml` two-wrapper section | **xfail, defect D9** |
+| 21 | SSML tags with attributes survive stripping | `test_ssml` attribute section | green (fixed 2026-11-06) |
+| 22 | consecutive `<speak>` blocks mangled | `test_ssml` two-wrapper section | green (fixed 2026-11-06) |
 | 23 | hanzi gaps kept / ASCII spaces dropped | `test_ssml` filterSpaces | green |
 | 24 | invalid UTF-8 crashes instead of truncating | `test_ssml` recovery section | green |
 | 25 | resampler returns the wrong length (the lone-K 3x bug class) | `test_resample` length table | green |
 | 26 | kernel gain != 1 (level shift on steady vowels) | `test_resample` DC section | green |
 | 27 | ALSA absent/missing-device path crashes | `test_alsa` degrade section | green |
 
-## Known defects found by this suite (2026-11-05, unfixed)
+## Defects found by this suite -- all fixed (2026-11-06)
 
-Marked `EK_KNOWN_*` in the tests: they count as neither pass nor fail, but the
-moment a fix lands they turn into XPASS errors and force the marker to be
-removed. All were found by reading the code against measured behaviour; none
-crashes the synthesis path except D7, which needs a zero-capacity ring to be
-constructed first.
+Nine defects, found 2026-11-05 while writing the suite and fixed the next
+day. Each was pinned with an `EK_KNOWN_*` marker (xfail, XPASS-as-error when
+fixed) until the fix landed; the markers are gone now and the cases assert
+the fixed behaviour directly.
 
-* **D1 -- `kPlace[]` transposed** (`appendPlaceValues`, src/text_normalize.cpp).
-  The table is indexed by place-from-the-right but written
-  highest-place-first, so every multi-digit number reads with the place words
-  shifted: "12" → 千二, "1234" → 一十二百三千四. The `n > 9` digit-out path is
-  the only one that reads correctly.
-* **D2 -- no 万 place for 5-9 digit numbers**: "10086" → 一零八千六 (the hotline
-  number; every 5-9 digit number is affected).
-* **D3 -- trailing zeros kept**: "10" → 十零, "100" → 一百零.
-* **D4 -- seven mojibake rows in `kUnitsTable`**: kHz→千赴, Hz→赤关,
-  GHz/MHz→克赴, MB→克字节, GB→免字节, dB→分贤 (one wrong nibble per row).
-  Pure hanzi is emitted, so nothing crashes -- it is only audible.
-* **D5 -- unit spoken before the number**: "12.5V" → 伏十二点五, contradicting
-  the README's own example (十二点五伏). 百分之 is a genuine prefix and is
-  placed correctly.
-* **D6 -- `PcmRing::write()` keeps the OLDEST frames of an oversized burst**
-  and reports dropped=0, against its documented drop-oldest contract. Latent:
-  the streaming path only calls `writeBlocking()`.
-* **D7 -- `PcmRing` with capacity 0**: `write()` divides by the capacity
-  (SIGFPE); `writeBlocking()` parks forever. Constructible through the public
-  constructor; the CLI sizes rings from `--ring-ms`.
-* **D8 -- chunked body without the final zero chunk reads as a clean end**
-  (`HttpBodyReader::read`, the size-line EOF path returns 0): a truncated
-  stream is indistinguishable from a finished one. The analogous EOF *inside*
-  a chunk correctly reports -1.
-* **D9 -- `Ssml::stripTags` loses on real-world SSML**: a `<speak>` with
-  attributes builds the closing needle from the whole opening tag
-  (`</speak version="1.0">`), which never matches, so tags reach the engine;
-  two consecutive wrappers pair the outer tags and leave
-  `a</speak><speak>b`.
+* **D1 -- `kPlace[]` transposed** (`appendPlaceValues`,
+  src/text_normalize.cpp): the table was indexed by place-from-the-right but
+  written highest-place-first, so every multi-digit number read with the
+  place words shifted ("12" as 千二, "1234" as 一十百千四).
+* **D2 -- no 万/亿 sections for 5-9 digit numbers**: "10086" read as
+  一零八千六 (the hotline number; every 5-9 digit number affected).
+* **D3 -- trailing zeros kept**: "10" read 十零, "100" read 一百零.
+* **D4 -- seven mojibake rows in `kUnitsTable`** (one wrong nibble each):
+  kHz→千赴, Hz→赤关, GHz/MHz→克赴, MB→克字节, GB→免字节,
+  dB→分贤. Pure hanzi is emitted, so nothing crashes -- it was only
+  audible.
+* **D5 -- unit spoken before the number**: "12.5V" came out 伏十二点五,
+  contradicting the README's own example. 百分之 is the one genuine
+  prefix and stays before the digits.
+* **D6 -- `PcmRing::write()` kept the OLDEST frames of an oversized burst**
+  and reported dropped=0, against its documented drop-oldest contract.
+  Latent: the streaming path only calls `writeBlocking()`.
+* **D7 -- `PcmRing` with capacity 0**: `write()` divided by the capacity
+  (SIGFPE); `writeBlocking()` parked forever.
+* **D8 -- chunked body without the final zero chunk read as a clean end**
+  (`HttpBodyReader::read`): a truncated stream was indistinguishable from a
+  finished one. EOF inside a chunk correctly reported -1 already.
+* **D9 -- `Ssml::stripTags` lost on real-world SSML**: a `<speak>` with
+  attributes built the closing needle from the whole opening tag, which
+  never matches; two consecutive wrappers paired the outer tags and left
+  `a</speak><speak>b`. Tags are stripped positionally now.
 
-Fixing D1/D4/D5 changes synthesised bytes for texts containing digits and
-units; `scripts/reg-44k.sh`'s 44.1 kHz anchors (02-numbers among them) will
-need re-recording after such a fix, which is why the suite records them as
-defects instead of failing the build.
+D1-D5 change synthesised bytes for texts containing digits and units, so
+`scripts/reg-44k.sh`'s 44.1 kHz anchors were re-recorded in the same change
+(02-numbers and 07-long-news moved; the pure-hanzi texts did not).
 
 ## Red/green calibration
 
