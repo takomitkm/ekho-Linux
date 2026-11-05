@@ -120,9 +120,50 @@ test_ekho_CPPFLAGS = -I$(srcdir)/src @SNDFILE_CFLAGS@ @ESPEAK_NG_CFLAGS@ @SONIC_
 test_ekho_CXXFLAGS = $(AM_CXXFLAGS) $(PTHREAD_CFLAGS)
 test_ekho_LDADD = $(LIBEKHO_LIB) @SNDFILE_LIBS@ @ESPEAK_NG_LIBS@ $(PTHREAD_LIBS)
 
-check_PROGRAMS = test_ekho
+# Unit tests (tests/check.h): the pure-logic layer, runnable with no voice
+# data, no audio device and no engine -- the tier the tree never had. They run
+# first so `make check` says something everywhere it builds; test_ekho is the
+# data-dependent smoke and skips itself (exit 77) when no voice pack is
+# present. Failure register and coverage map: tests/README.md.
+check_PROGRAMS = test_ekho test_normalize test_pcmring test_http test_ssml \
+	test_resample test_alsa
+TESTS = test_normalize test_pcmring test_http test_ssml test_resample \
+	test_alsa test_ekho
 
-TESTS = test_ekho
+EK_TEST_CPPFLAGS = -I$(srcdir)/src -I$(srcdir)/tests \
+	@SNDFILE_CFLAGS@ @ESPEAK_NG_CFLAGS@ @SONIC_CFLAGS@
+EK_TEST_CXXFLAGS = $(AM_CXXFLAGS) $(PTHREAD_CFLAGS)
+EK_TEST_LDADD = $(LIBEKHO_LIB) @SNDFILE_LIBS@ @ESPEAK_NG_LIBS@ $(PTHREAD_LIBS)
+
+test_normalize_SOURCES = tests/test_normalize.cpp
+test_normalize_CPPFLAGS = $(EK_TEST_CPPFLAGS)
+test_normalize_CXXFLAGS = $(EK_TEST_CXXFLAGS)
+test_normalize_LDADD = $(EK_TEST_LDADD)
+
+test_pcmring_SOURCES = tests/test_pcmring.cpp
+test_pcmring_CPPFLAGS = $(EK_TEST_CPPFLAGS)
+test_pcmring_CXXFLAGS = $(EK_TEST_CXXFLAGS)
+test_pcmring_LDADD = $(EK_TEST_LDADD)
+
+test_http_SOURCES = tests/test_http.cpp
+test_http_CPPFLAGS = $(EK_TEST_CPPFLAGS)
+test_http_CXXFLAGS = $(EK_TEST_CXXFLAGS)
+test_http_LDADD = $(EK_TEST_LDADD)
+
+test_ssml_SOURCES = tests/test_ssml.cpp
+test_ssml_CPPFLAGS = $(EK_TEST_CPPFLAGS)
+test_ssml_CXXFLAGS = $(EK_TEST_CXXFLAGS)
+test_ssml_LDADD = $(EK_TEST_LDADD)
+
+test_resample_SOURCES = tests/test_resample.cpp
+test_resample_CPPFLAGS = $(EK_TEST_CPPFLAGS)
+test_resample_CXXFLAGS = $(EK_TEST_CXXFLAGS)
+test_resample_LDADD = $(EK_TEST_LDADD)
+
+test_alsa_SOURCES = tests/test_alsa.cpp
+test_alsa_CPPFLAGS = $(EK_TEST_CPPFLAGS)
+test_alsa_CXXFLAGS = $(EK_TEST_CXXFLAGS)
+test_alsa_LDADD = $(EK_TEST_LDADD)
 
 DATA_DIR = $(srcdir)/ekho-data
 

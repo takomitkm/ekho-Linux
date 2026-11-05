@@ -96,7 +96,7 @@ grep 'warning:' "$WORK/make.log" | sed 's/.*warning: /  /' | sort | uniq -c | so
 echo
 echo "=== 7. copy artefacts back ==="
 mkdir -p "$SRC/out"
-for f in ekho ekho-stream ekho-server ekho-worker test_ekho; do
+for f in ekho ekho-stream ekho-server ekho-worker test_ekho \n         test_normalize test_pcmring test_http test_ssml test_resample test_alsa; do
   [ -f "$f" ] && cp -f "$f" "$SRC/out/"
 done
 ls -la "$SRC/out" | sed 's/^/  /'

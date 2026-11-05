@@ -24,6 +24,7 @@
 
 #include <iostream>
 #include <stdlib.h>
+#include <sys/stat.h>
 #include <unistd.h>
 #include "config.h"
 #include "ekho.h"
@@ -32,19 +33,48 @@
 using namespace ekho;
 using namespace std;
 
+// The voice packs are deliberately not in git (see README, "Known issues").
+// Without them this program used to run end-to-end and exit 0 while
+// synthesising nothing -- a green `make check` that said nothing. Skip loudly
+// instead; the unit tests in tests/ carry the assertions that need no data.
+static bool haveVoiceData() {
+  const char* env = getenv("EKHO_DATA_PATH");
+  string candidates[3];
+  int n = 0;
+  if (env && *env) candidates[n++] = env;
+  candidates[n++] = "./ekho-data";
+  candidates[n++] = EKHO_DATA_PATH;
+  for (int i = 0; i < n; i++) {
+    string probe = candidates[i] + "/pinyin.voice";
+    struct stat st;
+    if (stat(probe.c_str(), &st) == 0 && S_ISREG(st.st_mode)) return true;
+  }
+  return false;
+}
+
 void callback(void *arg) {
   printf("Finished speaking %s\n", (const char*)arg);
 }
 
 int main(int argc, char**argv) {
+  if (!haveVoiceData()) {
+    printf("test_ekho: SKIP -- no voice data (set EKHO_DATA_PATH; see tests/README.md)\n");
+    return 77;
+  }
+
   // test synth3
   Ekho *ekho = new Ekho();
   ekho->setSampleRate(8000);
   ekho->setChannels(2);
   ekho->setVoice("Mandarin");
-  int pcmSize;
+  int pcmSize = 0;
   ekho->synth3("123", pcmSize);
   cout << "pcm size: " << pcmSize << endl;
+  if (pcmSize <= 0) {
+    cerr << "test_ekho: FAIL -- synth3 produced no PCM" << endl;
+    delete(ekho);
+    return 1;
+  }
   delete(ekho);
   ekho = nullptr;
 
