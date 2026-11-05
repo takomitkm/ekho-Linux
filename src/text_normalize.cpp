@@ -70,14 +70,35 @@ const char* const kDigit[10] = {
     "\xE4\xB9\x9D",  // 九
 };
 
-const char* const kPlace[9] = {
-    "",  "\xE5\x8D\x83",  // 千
-    "\xE7\x99\xBE",      // 百
-    "\xE5\x8D\x81",      // 十
-    "", "", "", "", "",
+// Place words inside one 4-digit section, indexed by place-from-the-right
+// within the section: 0 = ones (none), 1 = 十, 2 = 百, 3 = 千.
+const char* const kSectionPlace[4] = {
+    "",                 // ones
+    "\xE5\x8D\x81",     // 十
+    "\xE7\x99\xBE",     // 百
+    "\xE5\x8D\x83",     // 千
 };
 
-// 1234 -> 一千二百三十四
+// Section unit emitted after a non-zero 4-digit section, indexed by section
+// from the right: 0 = ones section (none), 1 = 万, 2 = 亿.
+const char* const kSectionUnit[3] = {
+    "",
+    "\xE4\xB8\x87",     // 万
+    "\xE4\xBA\xBF",     // 亿
+};
+
+// 1234 -> 一千二百三十四, 12 -> 十二, 10 -> 十, 100 -> 一百,
+// 1005 -> 一千零五, 10086 -> 一万零八十六, 1000005 -> 一百万零五,
+// 123456789 -> 一亿二千三百四十五万六千七百八十九, 0 -> 零.
+//
+// The previous version indexed a highest-place-first table by
+// place-from-the-right, which transposed the place words of every
+// multi-digit number ("12" as 千二), appended a 零 after trailing zeros
+// ("10" as 十零), and had no 万/亿 words at all ("10086" as 一零八千六).
+// It walks 4-digit sections now: inside a section 零 is only spoken between
+// digits (never at the end), a section's unit follows its digits, and a
+// leading 一 before 十 is suppressed only when nothing has been spoken in
+// that section yet (十二, 十万零十二; but 一百一十).
 void appendPlaceValues(std::string& out, const std::string& digits) {
   size_t n = digits.size();
   if (n == 0) return;
@@ -86,23 +107,43 @@ void appendPlaceValues(std::string& out, const std::string& digits) {
     for (char c : digits) out += kDigit[c - '0'];
     return;
   }
-  bool pendingZero = false;
-  for (size_t i = 0; i < n; i++) {
-    int d = digits[i] - '0';
-    size_t pos = n - 1 - i;  // 0 = ones place
-    if (d == 0) {
-      pendingZero = true;
-      continue;
-    }
-    if (pendingZero) {
-      out += kDigit[0];
+
+  size_t nGroups = (n + 3) / 4;
+  size_t firstLen = n - (nGroups - 1) * 4;
+  bool pendingZero = false;  // a 零 is owed before the next spoken digit
+  bool spoken = false;       // anything emitted for this number so far
+  bool anyDigit = false;     // the number contains a non-zero digit at all
+
+  for (size_t g = 0; g < nGroups; g++) {
+    size_t begin = g == 0 ? 0 : firstLen + (g - 1) * 4;
+    size_t len = g == 0 ? firstLen : 4;
+    bool groupHasDigit = false;
+
+    for (size_t i = 0; i < len; i++) {
+      int d = digits[begin + i] - '0';
+      if (d == 0) {
+        pendingZero = true;
+        continue;
+      }
+      size_t j = len - 1 - i;  // place within the section: 0 ones .. 3 千
+      if (spoken && pendingZero) {
+        out += kDigit[0];
+      }
       pendingZero = false;
+      // "一十" is read 十二 / 十五 / 十万, but 一百一十 keeps the leading 一.
+      if (!(j == 1 && d == 1 && !groupHasDigit)) out += kDigit[d];
+      out += kSectionPlace[j];
+      spoken = true;
+      groupHasDigit = true;
+      anyDigit = true;
     }
-    // "一十" is read 十二 / 十五, but 一百一十 keeps the leading 一.
-    if (!(pos == 1 && d == 1 && n == 2)) out += kDigit[d];
-    out += kPlace[pos];
+
+    if (groupHasDigit) {
+      out += kSectionUnit[nGroups - 1 - g];
+    }
   }
-  if (pendingZero) out += kDigit[0];  // 1005 -> 一千零五
+
+  if (!anyDigit) out += kDigit[0];  // 0 / 000 -> 零
 }
 
 struct UnitEntry {
@@ -116,20 +157,20 @@ const UnitEntry kUnitsTable[] = {
     {"mA",   "\xE6\xAF\xAB\xE5\xAE\x89"},              // 毫安
     {"mV",   "\xE6\xAF\xAB\xE4\xBC\x8F"},              // 毫伏
     {"kV",   "\xE5\x8D\x83\xE4\xBC\x8F"},              // 千伏
-    {"GHz",  "\xE5\x85\x8B\xE8\xB5\xB4"},              // 吉赫
-    {"MHz",  "\xE5\x85\x8B\xE8\xB5\xB4"},              // 兆赫
-    {"kHz",  "\xE5\x8D\x83\xE8\xB5\xB4"},              // 千赫
-    {"GB",   "\xE5\x85\x8D\xE5\xAD\x97\xE8\x8A\x82"},  // 吉字节
+    {"GHz",  "\xE5\x90\x89\xE8\xB5\xAB"},              // 吉赫
+    {"MHz",  "\xE5\x85\x86\xE8\xB5\xAB"},              // 兆赫
+    {"kHz",  "\xE5\x8D\x83\xE8\xB5\xAB"},              // 千赫
+    {"GB",   "\xE5\x90\x89\xE5\xAD\x97\xE8\x8A\x82"},  // 吉字节
     {"KB",   "\xE5\x8D\x83\xE5\xAD\x97\xE8\x8A\x82"},  // 千字节
-    {"MB",   "\xE5\x85\x8B\xE5\xAD\x97\xE8\x8A\x82"},  // 兆字节
+    {"MB",   "\xE5\x85\x86\xE5\xAD\x97\xE8\x8A\x82"},  // 兆字节
     {"ms",   "\xE6\xAF\xAB\xE7\xA7\x92"},              // 毫秒
-    {"Hz",   "\xE8\xB5\xA4\xE5\x85\xB3"},              // 赫兹
+    {"Hz",   "\xE8\xB5\xAB\xE5\x85\xB9"},              // 赫兹
     {"km",   "\xE5\x85\xAC\xE9\x87\x8C"},              // 公里
     {"cm",   "\xE5\x8E\x98\xE7\xB1\xB3"},              // 厘米
     {"mm",   "\xE6\xAF\xAB\xE7\xB1\xB3"},              // 毫米
     {"kg",   "\xE5\x85\xAC\xE6\x96\xA4"},              // 公斤
     {"mg",   "\xE6\xAF\xAB\xE5\x85\x8B"},              // 毫克
-    {"dB",   "\xE5\x88\x86\xE8\xB4\xA4"},              // 分贝
+    {"dB",   "\xE5\x88\x86\xE8\xB4\x9D"},              // 分贝
     {"%",    "\xE7\x99\xBE\xE5\x88\x86\xE4\xB9\x8B"},  // 百分之
     {"V",    "\xE4\xBC\x8F"},                          // 伏
     {"A",    "\xE5\xAE\x89"},                          // 安
@@ -191,8 +232,6 @@ std::string normalizeText(const std::string& in, const NormalizeOptions& opt) {
       bool isPercent = opt.percent && in.compare(i, 1, "%") == 0;
       if (isPercent) {
         out += "\xE7\x99\xBE\xE5\x88\x86\xE4\xB9\x8B";  // 百分之
-      } else if (unitLen) {
-        out += lookupUnit(in, i);
       }
 
       size_t dot = digits.find('.');
@@ -205,6 +244,13 @@ std::string normalizeText(const std::string& in, const NormalizeOptions& opt) {
         appendPlaceValues(out, ip);
         out += "\xE7\x82\xB9";  // 点
         for (char c : fp) out += kDigit[c - '0'];
+      }
+
+      // Units are spoken after the number ("12.5V" -> 十二点五伏); 百分之 is
+      // the one genuine prefix. The unit used to be emitted before the
+      // digits, which made the README's own example come out 伏十二点五.
+      if (!isPercent && unitLen) {
+        out += lookupUnit(in, i);
       }
       i += unitLen;
       continue;

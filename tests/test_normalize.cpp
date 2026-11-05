@@ -6,9 +6,8 @@
  * passes through before the engine sees it. Runs without voice data, an audio
  * device or an engine -- that is the point: `make check` used to run only a
  * demo that went green with no data at all, while the streaming front end fed
- * the engine mis-converted numbers (see the xfail marks below, found by this
- * suite on 2026-11-05 and reported; they stay until the fix lands, then turn
- * into XPASS errors that force their removal).
+ * the engine mis-converted numbers -- the defects this suite found on
+ * 2026-11-05 are fixed as of 2026-11-06 and asserted directly below.
  *
  * Every case names the failure mode it is here for. Escapes follow
  * src/text_normalize.cpp: the file stays pure ASCII so no build needs a
@@ -83,40 +82,32 @@ int main() {
   EK_SECTION("normalize.digits: place values");
   // Failure mode: kPlace[] is indexed by place-from-the-right but written
   // highest-place-first, so every multi-digit number reads with transposed
-  // place words ("12" as 千二). Found 2026-11-05; unfixed.
-  EK_KNOWN_STREQ(normalizeText("12"), cat(kShi, kDigit[2]),
-                 "kPlace transposed: 12 reads \xE5\x8D\x83\xE4\xBA\x8C");
-  EK_KNOWN_STREQ(normalizeText("50"), cat(kDigit[5], kShi),
-                 "kPlace transposed: 50 reads \xE4\xBA\x94\xE5\x8D\x83\xE9\x9B\xB6");
-  EK_KNOWN_STREQ(normalizeText("123"), cat(kDigit[1], kBai, kDigit[2], kShi, kDigit[3]),
-                 "kPlace transposed");
-  EK_KNOWN_STREQ(normalizeText("1234"),
-                 cat(kDigit[1], kQian, kDigit[2], kBai, kDigit[3], kShi, kDigit[4]),
-                 "kPlace transposed");
-  EK_KNOWN_STREQ(normalizeText("1,234"),
-                 cat(kDigit[1], kQian, kDigit[2], kBai, kDigit[3], kShi, kDigit[4]),
-                 "group separator stripped but places transposed");
+  // place words ("12" as 千二). Found 2026-11-05, fixed 2026-11-06.
+  EK_STREQ(normalizeText("12"), cat(kShi, kDigit[2]));
+  EK_STREQ(normalizeText("50"), cat(kDigit[5], kShi));
+  EK_STREQ(normalizeText("123"), cat(kDigit[1], kBai, kDigit[2], kShi, kDigit[3]));
+  EK_STREQ(normalizeText("1234"),
+                 cat(kDigit[1], kQian, kDigit[2], kBai, kDigit[3], kShi, kDigit[4]));
+  EK_STREQ(normalizeText("1,234"),
+                 cat(kDigit[1], kQian, kDigit[2], kBai, kDigit[3], kShi, kDigit[4]));
 
   // -------------------------------------------------------------------------
   EK_SECTION("normalize.digits: zeros inside and at the end");
   // Failure mode: the pendingZero branch also fires for trailing zeros, so
   // "10" reads "ten zero". Internal zeros (1005 -> 一千零五) are correct.
-  EK_KNOWN_STREQ(normalizeText("10"), kShi, "trailing zero appended");
-  EK_KNOWN_STREQ(normalizeText("100"), cat(kDigit[1], kBai), "trailing zero appended");
-  EK_KNOWN_STREQ(normalizeText("1005"), cat(kDigit[1], kQian, kDigit[0], kDigit[5]),
-                 "kPlace transposed: 1005 reads 一十零五");
+  EK_STREQ(normalizeText("10"), kShi);
+  EK_STREQ(normalizeText("100"), cat(kDigit[1], kBai));
+  EK_STREQ(normalizeText("1005"), cat(kDigit[1], kQian, kDigit[0], kDigit[5]));
 
   // -------------------------------------------------------------------------
   EK_SECTION("normalize.digits: five to nine places");
   // Failure mode: kPlace[] covers four places, so "10086" (the classic
   // hotline number) loses the 万 place and reads 一零八千六.
-  EK_KNOWN_STREQ(normalizeText("10086"),
-                 cat(kDigit[1], kWan, kDigit[0], kDigit[8], kShi, kDigit[6]),
-                 "no \xE4\xB8\x87 place for 5-9 digit numbers");
-  EK_KNOWN_STREQ(normalizeText("12345"),
+  EK_STREQ(normalizeText("10086"),
+                 cat(kDigit[1], kWan, kDigit[0], kDigit[8], kShi, kDigit[6]));
+  EK_STREQ(normalizeText("12345"),
                  cat(kDigit[1], kWan, kDigit[2], kQian, kDigit[3], kBai, kDigit[4],
-                     kShi, kDigit[5]),
-                 "no \xE4\xB8\x87 place for 5-9 digit numbers");
+                     kShi, kDigit[5]));
 
   // -------------------------------------------------------------------------
   EK_SECTION("normalize.digits: more than nine places read out");
@@ -132,20 +123,16 @@ int main() {
   EK_STREQ(normalizeText("0.5"), cat(kDigit[0], kDian, kDigit[5]));
   EK_STREQ(normalizeText("3.14"), cat(kDigit[3], kDian, kDigit[1], kDigit[4]));
   EK_STREQ(normalizeText("1,2"), cat(kDigit[1]) + "," + kDigit[2]);
-  EK_KNOWN_STREQ(normalizeText("12."), cat(kDigit[1], kShi, kDigit[2]) + ".",
-                 "kPlace transposed before the trailing dot");
+  EK_STREQ(normalizeText("12."), cat(kShi, kDigit[2]) + ".");
 
   // -------------------------------------------------------------------------
   EK_SECTION("normalize.units: spoken after the number");
   // Failure mode: the unit word is emitted *before* the digits, so the
   // README's own example ("12.5V" -> 十二点五伏) comes out as 伏十二点五.
-  // Found 2026-11-05; unfixed.
-  EK_KNOWN_STREQ(normalizeText("12.5V"), cat(kDigit[1], kShi, kDian, kDigit[5], kFu),
-                 "unit spoken before the number");
-  EK_KNOWN_STREQ(normalizeText("2.4A"), cat(kDigit[2], kDian, kDigit[4], kAn),
-                 "unit spoken before the number");
-  EK_KNOWN_STREQ(normalizeText("3m"), cat(kDigit[3], kMi),
-                 "unit spoken before the number");
+  // Found 2026-11-05, fixed 2026-11-06.
+  EK_STREQ(normalizeText("12.5V"), cat(kShi, kDigit[2], kDian, kDigit[5], kFu));
+  EK_STREQ(normalizeText("2.4A"), cat(kDigit[2], kDian, kDigit[4], kAn));
+  EK_STREQ(normalizeText("3m"), cat(kDigit[3], kMi));
 
   // -------------------------------------------------------------------------
   EK_SECTION("normalize.units: the unit words themselves");
@@ -153,40 +140,36 @@ int main() {
   // (kHz -> 千赴, Hz -> 赤关, dB -> 分贤, MB -> 克字节, GB -> 免字节,
   //  GHz/MHz -> 克赴). Nonsense words reach the front end as ordinary hanzi
   // and are pronounced -- the defect is audible only, nothing crashes.
-  // One nibble per row; found 2026-11-05; unfixed.
-  EK_KNOWN_STREQ(normalizeText("16KB"), cat(kDigit[1], kDigit[6], kQian, kZiJie),
-                 "unit spoken before the number");
-  EK_KNOWN_STREQ(normalizeText("3ms"), cat(kDigit[3], kHao, kMiao),
-                 "unit spoken before the number");
-  EK_KNOWN_STREQ(normalizeText("2.4kHz"),
-                 cat(kQian, kHe, kDigit[2], kDian, kDigit[4]), "kHz decodes to \xE5\x8D\x83\xE8\xB5\xB4");
-  EK_KNOWN_STREQ(normalizeText("2.4Hz"),
-                 cat(kHe, kZi, kDigit[2], kDian, kDigit[4]), "Hz decodes to \xE8\xB5\xA4\xE5\x85\xB3");
-  EK_KNOWN_STREQ(normalizeText("2.4MHz"),
-                 cat(kZhao, kHe, kDigit[2], kDian, kDigit[4]), "MHz decodes to \xE5\x85\x8B\xE8\xB5\xB4");
-  EK_KNOWN_STREQ(normalizeText("2.4GHz"),
-                 cat(kJi, kHe, kDigit[2], kDian, kDigit[4]), "GHz decodes to \xE5\x85\x8B\xE8\xB5\xB4");
-  EK_KNOWN_STREQ(normalizeText("16MB"),
-                 cat(kDigit[1], kDigit[6], kZhao, kZiJie), "MB decodes to \xE5\x85\x8B\xE5\xAD\x97\xE8\x8A\x82");
-  EK_KNOWN_STREQ(normalizeText("80dB"),
-                 cat(kDigit[8], kDigit[0], kFen, kBei), "dB decodes to \xE5\x88\x86\xE8\xB4\xA4");
+  // One wrong nibble per row; found 2026-11-05, fixed 2026-11-06.
+  EK_STREQ(normalizeText("16KB"), cat(kShi, kDigit[6], kQian, kZiJie));
+  EK_STREQ(normalizeText("3ms"), cat(kDigit[3], kHao, kMiao));
+  EK_STREQ(normalizeText("2.4kHz"),
+                 cat(kDigit[2], kDian, kDigit[4], kQian, kHe));
+  EK_STREQ(normalizeText("2.4Hz"),
+                 cat(kDigit[2], kDian, kDigit[4], kHe, kZi));
+  EK_STREQ(normalizeText("2.4MHz"),
+                 cat(kDigit[2], kDian, kDigit[4], kZhao, kHe));
+  EK_STREQ(normalizeText("2.4GHz"),
+                 cat(kDigit[2], kDian, kDigit[4], kJi, kHe));
+  EK_STREQ(normalizeText("16MB"),
+                 cat(kShi, kDigit[6], kZhao, kZiJie));
+  EK_STREQ(normalizeText("80dB"),
+                 cat(kDigit[8], kShi, kFen, kBei));
 
   // -------------------------------------------------------------------------
   EK_SECTION("normalize.units: longest key wins");
   // The table comment pins this: "kHz" must not be matched as "Hz", "mm" not
   // as "m", "ms" not as "m"/"s".
   EK_CHECK(normalizeText("2.4kHz").find("Hz") == std::string::npos);
-  EK_STREQ(normalizeText("3mm"), cat(kHao, kMi, kDigit[3]));
+  EK_STREQ(normalizeText("3mm"), cat(kDigit[3], kHao, kMi));
 
   // -------------------------------------------------------------------------
   EK_SECTION("normalize.percent: prefix before the number");
   // 百分之 is a genuine prefix, so the order is right; the digits inside are
   // the place-value defect above, which is why these are xfail too.
-  EK_KNOWN_STREQ(normalizeText("50%"), cat(kFenzhi, kDigit[5], kShi),
-                 "digits mis-converted (\xE4\xBA\x94\xE5\x8D\x81 reads \xE4\xBA\x94\xE5\x8D\x83\xE9\x9B\xB6)");
-  EK_KNOWN_STREQ(normalizeText("93.7%"),
-                 cat(kFenzhi, kDigit[9], kShi, kDigit[3], kDian, kDigit[7]),
-                 "digits mis-converted");
+  EK_STREQ(normalizeText("50%"), cat(kFenzhi, kDigit[5], kShi));
+  EK_STREQ(normalizeText("93.7%"),
+                 cat(kFenzhi, kDigit[9], kShi, kDigit[3], kDian, kDigit[7]));
 
   // -------------------------------------------------------------------------
   EK_SECTION("normalize.options: each switch disables its own rewrite");
