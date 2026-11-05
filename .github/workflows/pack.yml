@@ -43,7 +43,7 @@ jobs:
 
       - name: Build the engine
         run: |
-          ./autogen.sh
+          sh autogen.sh
           ./configure --prefix="$PWD/prefix" \
                       --with-alsa --with-sonic \
                       --without-pulseaudio --without-curl \
