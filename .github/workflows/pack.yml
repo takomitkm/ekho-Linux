@@ -21,6 +21,11 @@ on:
   workflow_dispatch:
   push:
     paths:
+      - 'src/**'
+      - 'Makefile.am'
+      - 'configure.ac'
+      - 'third_party/**'
+      - 'tests/**'
       - 'scripts/fetch-voice.sh'
       - 'scripts/convert-voice.c'
       - 'scripts/convert-alphabet.c'

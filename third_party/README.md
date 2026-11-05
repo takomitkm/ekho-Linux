@@ -10,6 +10,7 @@ what licence, because the licences of vendored code have to travel with it.
 |---|---|---|---|
 | `sonic/` | libsonic (Bill Cox), `sonic.c` + `sonic.h` | Apache-2.0 | The board has no libsonic at all, and the speech-rate stage needs it. `Makefile.am` builds it from this tree (`noinst_LIBRARIES = libekho.a libsonic.a`). The licence notice is in the first eight lines of `sonic.c` and `sonic.h`. |
 | `alsa/include/alsa/` | alsa-lib headers, `SND_LIB_VERSION_STR "1.2.15.3"` | LGPL-2.1-or-later | The board ships `libasound.so.2` but **no `libasound2-dev`**, so there are no headers to compile against. Every file carries its own licence notice at the top. |
+| `utf8cpp/` | utf8cpp 4.0.9 (Nemanja Trifunovic), `utf8.h` + `utf8/*.h` | BSD-2-Clause (notice in `utf8.h`) | `src/ssml.cpp` walks UTF-8 through it and `src/character.h` includes it, so every target needs the header; a fresh host otherwise needs `libutfcpp-dev` (and the board kit used to fetch it from a local MSYS2 tree, `cross/x-kit-ekho.sh`). Vendored so the documented dependency list -- libsndfile and espeak-ng only -- stays true. The cross kit keeps its own copy and its own include path. |
 
 Neither of these is resolved against a system library at link time: libsonic is
 compiled from this tree into the program's own static archive, and the ALSA
