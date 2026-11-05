@@ -51,16 +51,31 @@ size_t PcmRing::write(const short* pcm, size_t frames) {
 
   size_t space = capacity_ - count_;
   if (frames > space) {
-    // Drop-oldest. A consumer that cannot keep up should miss audio, not
-    // accumulate unbounded lag behind live speech.
-    size_t need = frames - space;
-    if (need > count_) need = count_;
-    readPos_ = (readPos_ + need) % capacity_;
-    count_ -= need;
-    dropped_ += need;
+    // Drop-oldest: what survives is the newest min(frames, capacity_) frames
+    // of the burst. Audio the consumer will never hear -- ring content
+    // evicted here plus the head of a burst larger than the ring itself --
+    // is counted in dropped_. The old code clamped the eviction to what was
+    // stored and then copied from the head of the burst, which kept the
+    // OLDEST frames of an oversized burst and reported dropped = 0.
+    if (frames <= capacity_) {
+      size_t evict = frames - space;
+      readPos_ = (readPos_ + evict) % capacity_;
+      count_ -= evict;
+      dropped_ += evict;
+    } else {
+      // The burst alone overfills the ring: it replaces everything.
+      dropped_ += count_ + (frames - capacity_);
+      count_ = 0;
+      readPos_ = writePos_;
+    }
     space = capacity_ - count_;
   }
   size_t n = std::min(frames, space);
+  if (frames > capacity_) {
+    // Copy only the tail of the burst; its head never enters the ring.
+    pcm += frames - capacity_;
+    n = capacity_;
+  }
   for (size_t i = 0; i < n; i++) {
     buf_[writePos_] = pcm[i];
     writePos_ = (writePos_ + 1) % capacity_;
@@ -71,7 +86,9 @@ size_t PcmRing::write(const short* pcm, size_t frames) {
 }
 
 size_t PcmRing::writeBlocking(const short* pcm, size_t frames) {
-  if (frames == 0) return 0;
+  // A zero-capacity ring has no space to wait for: without this guard the
+  // loop parks forever (and write() would divide by the capacity).
+  if (frames == 0 || capacity_ == 0) return 0;
   pthread_mutex_lock(&mutex_);
 
   size_t written = 0;

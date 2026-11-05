@@ -14,13 +14,12 @@
  *   * abort()          releases a parked producer
  * The streaming path only uses writeBlocking() -- silent sample loss is an
  * audible artefact -- but write() is public API with its own documented
- * behaviour, and the drop-accounting defect this suite found in it
- * (2026-11-05, unfixed) is marked with EK_KNOWN_BUG below.
+ * behaviour, and both defects this suite found in it (oversized-burst drop
+ * accounting, SIGFPE on capacity 0) are fixed and asserted directly.
  **************************************************************************/
 #include "check.h"
 
 #include <pthread.h>
-#include <sys/wait.h>
 #include <time.h>
 #include <unistd.h>
 #include <string.h>
@@ -119,21 +118,18 @@ int main() {
   EK_SECTION("ring: write() with more frames than capacity");
   // Failure mode (documented contract): the NEWEST min(frames, capacity)
   // frames must survive and the discarded ones must be counted. The code
-  // instead keeps the oldest frames and reports dropped=0, silently losing
-  // the tail of the burst. Found 2026-11-05; unfixed. Latent today: the
-  // streaming path only calls writeBlocking(), never write().
+  // used to keep the oldest frames and report dropped=0, silently losing the
+  // tail of the burst (found 2026-11-05, fixed 2026-11-06). Latent while it
+  // lasted: the streaming path only calls writeBlocking(), never write().
   {
     PcmRing r(4);
     short in[6] = {1, 2, 3, 4, 5, 6};
     EK_EQ(r.write(in, 6), 4);
-    EK_KNOWN(r.droppedFrames() == 2 && r.available() == 4,
-             "write(6 frames) into an empty 4-slot ring keeps the OLDEST 4 "
-             "and counts no drop");
+    EK_EQ(r.droppedFrames(), 2);   // the head of the burst never entered
+    EK_EQ(r.available(), 4);
     short out[4] = {0};
     r.read(out, 4);
-    bool newest = out[0] == 3 && out[1] == 4 && out[2] == 5 && out[3] == 6;
-    EK_KNOWN(newest, "the ring must hold the newest frames of an oversized "
-                     "burst, not the first four");
+    for (int i = 0; i < 4; i++) EK_EQ(out[i], 3 + i);  // newest frames kept
   }
 
   // -------------------------------------------------------------------------
@@ -158,23 +154,18 @@ int main() {
   // Contained in a child process: a SIGFPE here must be a reported defect, not
   // a dead test binary with no output.
   {
+    // write() used to divide by the capacity (SIGFPE) and writeBlocking()
+    // parked forever; both are guarded now (found 2026-11-05, fixed
+    // 2026-11-06), so these run in-process.
     PcmRing r(0);
     EK_EQ(r.capacitySamples(), 0);
     EK_EQ(r.available(), 0);
     short out[2] = {0};
-    EK_EQ(r.read(out, 2), 0);  // safe: min(frames, 0)
-
-    pid_t pid = fork();
-    if (pid == 0) {
-      short in[2] = {1, 2};
-      r.write(in, 2);  // currently SIGFPE: (readPos + need) % capacity_
-      _exit(0);
-    }
-    int status = 0;
-    waitpid(pid, &status, 0);
-    bool clean = WIFEXITED(status) && WEXITSTATUS(status) == 0;
-    EK_KNOWN(clean, "PcmRing(0).write() divides by capacity and dies with "
-                    "SIGFPE (writeBlocking would park forever instead)");
+    EK_EQ(r.read(out, 2), 0);   // safe: min(frames, 0)
+    short in[2] = {1, 2};
+    EK_EQ(r.write(in, 2), 0);   // nothing stored
+    EK_EQ(r.droppedFrames(), 2);  // and everything counted as dropped
+    EK_EQ(r.writeBlocking(in, 2), 0);  // returns instead of parking
   }
 
   // -------------------------------------------------------------------------
