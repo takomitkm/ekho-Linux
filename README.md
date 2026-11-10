@@ -1,5 +1,9 @@
 # ekho
 
+## 迁出说明（Migration note）
+
+2026-11-11 起，本仓库由组织 [WCIS-Team](https://github.com/WCIS-Team) 迁出，归属个人账号 [takomitkm](https://github.com/takomitkm)：由于太菜了没能晋级fpgachina且该项目完全由我个人创建，遂迁出WCIS-Team。旧地址 <https://github.com/WCIS-Team/ekho-Linux> 由 GitHub 自动重定向到本仓库，提交历史、tag 与 release（ekho aarch64 kit）完整保留。
+
 ## This fork: Linux only
 
 This tree is a Linux-only fork of <https://github.com/hgneng/ekho>: Windows build
